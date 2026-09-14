@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en" data-theme="luxury">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usage Pill - Interface Design Review</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :where(.grid, .flex) > * { min-width: 0; }
+  :where(p, h1, h2, h3, h4, li, td, th, .badge, .label) { overflow-wrap: anywhere; }
+
+  .desktop { position: relative; border-radius: 12px; overflow: hidden;
+    background: radial-gradient(120% 110% at 18% 10%, #3b5170 0%, #24344d 45%, #101a29 100%);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+  .desktop.light { background: radial-gradient(120% 110% at 18% 10%, #e8eef7 0%, #cfdaea 50%, #aebdd4 100%); }
+  .desktop::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 24px 24px; }
+  .desktop-body { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; }
+
+  /* ================= RING ================= */
+  .mr, .mr * { font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  .mr {
+    --size: 32px; --t: 3px;
+    --track: rgba(255,255,255,.15); --core: rgba(24,28,36,.86);
+    position: relative; width: var(--size); height: var(--size); border-radius: 50%;
+    display: inline-grid; place-items: center; flex: 0 0 auto; user-select: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.09);
+  }
+  .mr .arc { position: absolute; inset: 0; border-radius: 50%;
+    background: conic-gradient(var(--c) calc(var(--p) * 1%), var(--track) 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--t)), #000 calc(100% - var(--t)));
+            mask: radial-gradient(farthest-side, transparent calc(100% - var(--t)), #000 calc(100% - var(--t))); }
+  .mr .core { position: absolute; inset: var(--t); border-radius: 50%;
+    background: var(--core); backdrop-filter: blur(18px) saturate(150%);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+  .mr .val { position: relative; z-index: 2; color: #f4f6fa; font-variant-numeric: tabular-nums;
+    font-weight: 650; line-height: 1; letter-spacing: -.02em; }
+  .mr.light { box-shadow: 0 4px 10px rgba(0,0,0,.18), 0 0 0 1px rgba(0,0,0,.08);
+    --track: rgba(0,0,0,.13); --core: rgba(252,252,253,.92); }
+  .mr.light .val { color: #16191f; }
+
+  .s24 { --size: 24px; --t: 2.4px; font-size: 8.5px; }
+  .s28 { --size: 28px; --t: 2.6px; font-size: 9.5px; }
+  .s32 { --size: 32px; --t: 3px;   font-size: 11px; }
+  .s40 { --size: 40px; --t: 3.6px; font-size: 13.5px; }
+  .s48 { --size: 48px; --t: 4.2px; font-size: 16px; }
+
+  .sev-ok   { --c: #3ecf8e; }
+  .sev-warn { --c: #f5b73d; }
+  .sev-crit { --c: #f2555a; }
+  .sev-off  { --c: #6c7684; }
+
+  /* ---- group: capsule or bare, horizontal or vertical ---- */
+  .grp { display: inline-flex; align-items: center; gap: 8px; }
+  .grp.v { flex-direction: column; }
+  .grp.cap { padding: 5px 7px; border-radius: 999px;
+    background: rgba(22,26,33,.62); backdrop-filter: blur(18px) saturate(150%);
+    box-shadow: 0 6px 18px rgba(0,0,0,.30), inset 0 0 0 1px rgba(255,255,255,.08); }
+  .grp.bare { gap: 10px; }
+
+  .unit { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; }
+  .unit .tag { font-family: "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+    font-size: 8.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase;
+    color: rgba(255,255,255,.52); line-height: 1; }
+  .grp.light .unit .tag { color: rgba(0,0,0,.45); }
+  .unit.side { flex-direction: row; gap: 5px; }
+  .unit.side .tag { letter-spacing: .04em; }
+
+  .stale-dot { position: absolute; z-index: 3; right: -1px; top: -1px; width: 8px; height: 8px;
+    border-radius: 50%; background: #9aa4b2; box-shadow: 0 0 0 2px rgba(20,24,31,.92); }
+
+  .zoom3 { zoom: 3; } .zoom2 { zoom: 2; }
+  @supports not (zoom: 3) { .zoom3 { transform: scale(3); transform-origin: center; } .zoom2 { transform: scale(2); transform-origin: center; } }
+
+  /* ---------- popup / tray / settings ---------- */
+  .win { font-family: "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+    width: 272px; border-radius: 10px; padding: 12px 13px 11px; color: #eef1f6;
+    background: rgba(32,36,45,.94); backdrop-filter: blur(24px);
+    border: 1px solid rgba(255,255,255,.09); box-shadow: 0 16px 42px rgba(0,0,0,.5);
+    font-size: 12px; text-align: left; }
+  .win h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; opacity: .5; margin: 0 0 8px; font-weight: 600; }
+  .win .row { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .win .row .k { opacity: .78; }
+  .win .row .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .win .chip { width: 10px; height: 10px; border-radius: 50%; border: 2.5px solid var(--c); }
+  .win .meter { height: 4px; border-radius: 2px; background: rgba(255,255,255,.12); overflow: hidden; margin: 1px 0 9px; }
+  .win .meter i { display: block; height: 100%; width: calc(var(--p) * 1%); background: var(--c); border-radius: 2px; }
+  .win .foot { margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(255,255,255,.08); display: flex; justify-content: space-between; opacity: .55; font-size: 11px; }
+  .win .tiny { opacity: .5; font-size: 11px; }
+
+  .setwin { width: 272px; }
+  .setwin .grp2 { margin-bottom: 12px; }
+  .setwin label.sw { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
+  .setwin .toggle-mock { width: 34px; height: 18px; border-radius: 9px; background: rgba(255,255,255,.16); position: relative; }
+  .setwin .toggle-mock.on { background: #3b82f6; }
+  .setwin .toggle-mock i { position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+  .setwin .toggle-mock.on i { left: 19px; }
+  .setwin .slider { height: 4px; border-radius: 2px; background: rgba(255,255,255,.16); position: relative; margin: 12px 0 6px; }
+  .setwin .slider i { position: absolute; left: 0; top: 0; bottom: 0; width: 40%; background: #3b82f6; border-radius: 2px; }
+  .setwin .slider b { position: absolute; left: 40%; top: -5px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+
+  .tray { font-family: "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; width: 190px; border-radius: 8px; padding: 5px;
+    background: rgba(43,47,56,.96); border: 1px solid rgba(255,255,255,.09);
+    box-shadow: 0 14px 34px rgba(0,0,0,.5); color: #eef1f6; font-size: 12px; text-align: left; }
+  .tray div { padding: 6px 10px; border-radius: 5px; }
+  .tray div.hi { background: rgba(255,255,255,.09); }
+  .tray hr { border: 0; border-top: 1px solid rgba(255,255,255,.09); margin: 4px 6px; }
+
+  code.k { font-family: ui-monospace,"Cascadia Code",Consolas,monospace; font-size: .85em; }
+  .capt { font-size: 11px; opacity: .62; text-align: center; margin-top: 8px; }
+  .capt-w { color: rgba(255,255,255,.72); }
+</style>
+</head>
+<body class="bg-base-200 text-base-content">
+<main class="mx-auto max-w-6xl p-5 lg:p-9">
+
+  <header class="mb-8">
+    <div class="flex flex-wrap items-center gap-3 mb-3">
+      <span class="badge badge-soft badge-success">Round 4</span>
+      <span class="badge badge-ghost">Step 2 of 3 - interface</span>
+      <span class="badge badge-ghost">Last round before the plan</span>
+    </div>
+    <h1 class="text-4xl font-bold tracking-tight">Usage Pill - interface design</h1>
+    <p class="mt-3 max-w-3xl text-base-content/70">
+      Layout <strong>B - three rings side by side</strong> is chosen, with an adjustable diameter.
+      This round settles the last four pixel questions: labels, background, direction, and the size range.
+    </p>
+  </header>
+
+  <!-- ===================== AGREED ===================== -->
+  <section class="mb-12">
+    <div class="card card-border bg-base-100">
+      <div class="card-body p-5">
+        <h2 class="card-title text-base">Agreed so far</h2>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+          <div class="flex gap-2"><span class="badge badge-success badge-xs mt-1"></span><span><strong>3 rings side by side</strong><br><span class="text-base-content/60">Session, Weekly, Fable</span></span></div>
+          <div class="flex gap-2"><span class="badge badge-success badge-xs mt-1"></span><span><strong>Size adjustable</strong><br><span class="text-base-content/60">in settings</span></span></div>
+          <div class="flex gap-2"><span class="badge badge-success badge-xs mt-1"></span><span><strong>Number only</strong><br><span class="text-base-content/60">no % sign</span></span></div>
+          <div class="flex gap-2"><span class="badge badge-success badge-xs mt-1"></span><span><strong>Arc fills up</strong><br><span class="text-base-content/60">clockwise as you use</span></span></div>
+          <div class="flex gap-2"><span class="badge badge-success badge-xs mt-1"></span><span><strong>Follows Windows theme</strong></span></div>
+          <div class="flex gap-2"><span class="badge badge-success badge-xs mt-1"></span><span><strong>Snaps to edges</strong></span></div>
+          <div class="flex gap-2"><span class="badge badge-success badge-xs mt-1"></span><span><strong>Tooltip on hover</strong><br><span class="text-base-content/60">click opens detail</span></span></div>
+          <div class="flex gap-2"><span class="badge badge-success badge-xs mt-1"></span><span><strong>Always clickable</strong></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 1. THE CHOSEN PILL ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">1. The pill, as chosen</h2>
+    <p class="text-base-content/60 mb-5">Session 90% (critical), Weekly 17%, Fable 15%. True size at the default 32 px, then 3x zoom.</p>
+    <div class="desktop p-8 mb-3">
+      <div class="desktop-body">
+        <span class="grp cap">
+          <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+        </span>
+      </div>
+    </div>
+    <div class="desktop p-8">
+      <div class="desktop-body h-44 overflow-hidden">
+        <span class="grp cap zoom3">
+          <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+        </span>
+      </div>
+    </div>
+    <p class="capt">Default 32 px rings, capsule background, ~126 x 42 px total</p>
+  </section>
+
+  <!-- ===================== 2. LABELS ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">2. How do you know which ring is which?</h2>
+    <p class="text-base-content/60 mb-5">Three equal circles give no clue by themselves. True size, then 2x zoom below each.</p>
+
+    <div class="grid gap-5">
+      <article class="card card-border bg-base-100">
+        <div class="card-body gap-3 p-5">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="card-title text-lg">1. No labels</h3>
+            <span class="badge badge-warning badge-sm">Recommended</span>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-2">
+          <div class="desktop"><div class="desktop-body h-24">
+            <span class="grp cap">
+              <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+              <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+              <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+            </span>
+          </div></div>
+          <div class="desktop"><div class="desktop-body h-28 overflow-hidden">
+            <span class="grp cap zoom2">
+              <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+              <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+              <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+            </span>
+          </div></div>
+          </div>
+          <p class="text-sm text-base-content/70">Smallest and cleanest. The order never changes, so you learn it in a day. Hover gives the names.</p>
+        </div>
+      </article>
+
+      <article class="card card-border bg-base-100">
+        <div class="card-body gap-3 p-5">
+          <h3 class="card-title text-lg">2. Label under each ring</h3>
+          <div class="grid gap-3 sm:grid-cols-2">
+          <div class="desktop"><div class="desktop-body h-24">
+            <span class="grp cap" style="padding:5px 9px 6px">
+              <span class="unit"><span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span><span class="tag">5h</span></span>
+              <span class="unit"><span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span><span class="tag">wk</span></span>
+              <span class="unit"><span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span><span class="tag">fable</span></span>
+            </span>
+          </div></div>
+          <div class="desktop"><div class="desktop-body h-28 overflow-hidden">
+            <span class="grp cap zoom2" style="padding:5px 9px 6px">
+              <span class="unit"><span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span><span class="tag">5h</span></span>
+              <span class="unit"><span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span><span class="tag">wk</span></span>
+              <span class="unit"><span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span><span class="tag">fable</span></span>
+            </span>
+          </div></div>
+          </div>
+          <p class="text-sm text-base-content/70">No memory needed. Costs ~12 px of height and adds 8.5 px text that is small on a high-DPI screen.</p>
+        </div>
+      </article>
+
+      <article class="card card-border bg-base-100">
+        <div class="card-body gap-3 p-5">
+          <h3 class="card-title text-lg">3. Label beside each ring</h3>
+          <div class="grid gap-3 sm:grid-cols-2">
+          <div class="desktop"><div class="desktop-body h-24">
+            <span class="grp cap" style="gap:11px">
+              <span class="unit side"><span class="tag">5h</span><span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span></span>
+              <span class="unit side"><span class="tag">wk</span><span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span></span>
+              <span class="unit side"><span class="tag">fbl</span><span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span></span>
+            </span>
+          </div></div>
+          <div class="desktop"><div class="desktop-body h-28 overflow-hidden">
+            <span class="grp cap zoom2" style="gap:11px">
+              <span class="unit side"><span class="tag">5h</span><span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span></span>
+              <span class="unit side"><span class="tag">wk</span><span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span></span>
+              <span class="unit side"><span class="tag">fbl</span><span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span></span>
+            </span>
+          </div></div>
+          </div>
+          <p class="text-sm text-base-content/70">Keeps the height, but grows to ~190 px wide and the labels crowd the rings.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ===================== 3. BACKGROUND ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">3. Capsule behind the rings, or not</h2>
+    <p class="text-base-content/60 mb-5">The capsule ties the three rings into one object and gives a drag surface. Without it the rings float free.</p>
+    <div class="grid gap-5 sm:grid-cols-2">
+      <div>
+        <div class="desktop"><div class="desktop-body h-28">
+          <span class="grp cap">
+            <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+          </span>
+        </div></div>
+        <p class="capt">With capsule - one object, easier to grab</p>
+      </div>
+      <div>
+        <div class="desktop"><div class="desktop-body h-28">
+          <span class="grp bare">
+            <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+          </span>
+        </div></div>
+        <p class="capt">Bare rings - lighter, but you must grab a ring to drag</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 4. DIRECTION ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">4. Horizontal or vertical</h2>
+    <p class="text-base-content/60 mb-5">Vertical fits a screen side; horizontal fits the top or bottom edge.</p>
+    <div class="grid gap-5 sm:grid-cols-2">
+      <div>
+        <div class="desktop"><div class="desktop-body h-40">
+          <span class="grp cap">
+            <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+          </span>
+        </div></div>
+        <p class="capt">Horizontal - 126 x 42 px</p>
+      </div>
+      <div>
+        <div class="desktop"><div class="desktop-body h-40">
+          <span class="grp cap v">
+            <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+          </span>
+        </div></div>
+        <p class="capt">Vertical - 42 x 126 px</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 5. SIZE RANGE ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">5. The size slider</h2>
+    <p class="text-base-content/60 mb-5">You chose adjustable. This is the range I propose: 24 to 48 px, default 32. True size.</p>
+    <div class="desktop p-8">
+      <div class="desktop-body flex-col gap-7">
+        <div><span class="grp cap">
+          <span class="mr s24 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+          <span class="mr s24 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+          <span class="mr s24 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+        </span><div class="capt capt-w">24 px - minimum, digits at 8.5 px</div></div>
+        <div><span class="grp cap">
+          <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+        </span><div class="capt capt-w">32 px - default</div></div>
+        <div><span class="grp cap">
+          <span class="mr s48 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+          <span class="mr s48 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+          <span class="mr s48 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+        </span><div class="capt capt-w">48 px - maximum</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 6. RING SWITCHES ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">6. Each ring is a switch</h2>
+    <p class="text-base-content/60 mb-5">Switch a ring off and the pill shrinks. Session cannot be switched off.</p>
+    <div class="desktop p-8">
+      <div class="desktop-body gap-12 flex-wrap">
+        <div><span class="grp cap"><span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span></span><div class="capt capt-w">Session only - 46 px</div></div>
+        <div><span class="grp cap">
+          <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+        </span><div class="capt capt-w">+ Weekly - 86 px</div></div>
+        <div><span class="grp cap">
+          <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+          <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+        </span><div class="capt capt-w">+ Fable - 126 px</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 7. STATES ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">7. Every state</h2>
+    <p class="text-base-content/60 mb-5">Each ring takes its own colour from its own value. Errors apply to the whole pill.</p>
+    <div class="overflow-x-auto rounded-box border border-base-content/10 bg-base-100">
+      <table class="table table-zebra align-middle">
+        <thead><tr><th class="w-40">State</th><th class="w-44">Pill</th><th>When</th><th>Tooltip</th></tr></thead>
+        <tbody>
+          <tr><td>Normal</td><td><span class="grp cap">
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:34"></i><i class="core"></i><span class="val">34</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span></span></td>
+            <td>all below 75%</td><td>Session 34%, resets 19:10</td></tr>
+          <tr><td>Mixed</td><td><span class="grp cap">
+            <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+            <span class="mr s32 sev-warn"><i class="arc" style="--p:80"></i><i class="core"></i><span class="val">80</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span></span></td>
+            <td>each ring coloured on its own value</td><td>Session 90%, Weekly 80%</td></tr>
+          <tr><td>Stale</td><td><span class="grp cap" style="opacity:.6">
+            <span class="mr s32 sev-crit"><i class="stale-dot"></i><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span></span></td>
+            <td>429 or network error - last good values kept</td><td>Rate limited, retry at 14:35</td></tr>
+          <tr><td>Loading</td><td><span class="grp cap">
+            <span class="mr s32 sev-off"><i class="arc" style="--p:0"></i><i class="core"></i><span class="val" style="opacity:.5">--</span></span>
+            <span class="mr s32 sev-off"><i class="arc" style="--p:0"></i><i class="core"></i><span class="val" style="opacity:.5">--</span></span>
+            <span class="mr s32 sev-off"><i class="arc" style="--p:0"></i><i class="core"></i><span class="val" style="opacity:.5">--</span></span></span></td>
+            <td>first poll after start</td><td>Loading</td></tr>
+          <tr><td>Not logged in</td><td><span class="grp cap">
+            <span class="mr s32 sev-off"><i class="arc" style="--p:0"></i><i class="core"></i><span class="val" style="opacity:.5">-</span></span>
+            <span class="mr s32 sev-off"><i class="arc" style="--p:0"></i><i class="core"></i><span class="val" style="opacity:.5">-</span></span>
+            <span class="mr s32 sev-off"><i class="arc" style="--p:0"></i><i class="core"></i><span class="val" style="opacity:.5">-</span></span></span></td>
+            <td>no credentials file</td><td>Claude Code not logged in</td></tr>
+          <tr><td>Login expired</td><td><span class="grp cap">
+            <span class="mr s32 sev-warn"><i class="arc" style="--p:100"></i><i class="core"></i><span class="val">!</span></span>
+            <span class="mr s32 sev-off"><i class="arc" style="--p:0"></i><i class="core"></i><span class="val" style="opacity:.5">-</span></span>
+            <span class="mr s32 sev-off"><i class="arc" style="--p:0"></i><i class="core"></i><span class="val" style="opacity:.5">-</span></span></span></td>
+            <td>token expired and 401</td><td>Login expired - start Claude Code to refresh</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================== 8. POPUP / SETTINGS / TRAY ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">8. Detail card, settings, tray</h2>
+    <div class="grid gap-5 lg:grid-cols-3">
+      <div class="card card-border bg-base-100"><div class="card-body p-5 gap-3">
+        <h3 class="card-title text-lg">Detail card</h3>
+        <div class="desktop p-3"><div class="desktop-body flex-col gap-2.5 items-center">
+          <span class="grp cap">
+            <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+            <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+          </span>
+          <div class="win">
+            <h4>Claude - Max 5x</h4>
+            <div class="row"><i class="chip sev-crit"></i><span class="k">Session <span style="opacity:.45">- 1st</span></span><span class="v">90%</span></div>
+            <div class="meter sev-crit" style="--p:90"><i></i></div>
+            <div class="row"><i class="chip sev-ok"></i><span class="k">Weekly, all <span style="opacity:.45">- 2nd</span></span><span class="v">17%</span></div>
+            <div class="meter sev-ok" style="--p:17"><i></i></div>
+            <div class="row"><i class="chip sev-ok"></i><span class="k">Weekly, Fable <span style="opacity:.45">- 3rd</span></span><span class="v">15%</span></div>
+            <div class="meter sev-ok" style="--p:15"><i></i></div>
+            <div class="row"><i class="chip" style="--c:#6c7684"></i><span class="k">Extra credits</span><span class="v">$0.00 / $200</span></div>
+            <div class="foot"><span>Session resets 19:10</span><span>Weekly Wed 02:00</span></div>
+            <div class="tiny mt-2">Updated 2 min ago</div>
+          </div>
+        </div></div>
+      </div></div>
+
+      <div class="card card-border bg-base-100"><div class="card-body p-5 gap-3">
+        <h3 class="card-title text-lg">Settings</h3>
+        <div class="desktop p-3"><div class="desktop-body">
+          <div class="win setwin">
+            <h4>Rings</h4>
+            <div class="grp2">
+              <label class="sw"><span>Session (5 hours)</span><span class="toggle-mock on"><i></i></span></label>
+              <label class="sw"><span>Weekly, all models</span><span class="toggle-mock on"><i></i></span></label>
+              <label class="sw"><span>Weekly, per model</span><span class="toggle-mock on"><i></i></span></label>
+            </div>
+            <h4>Appearance</h4>
+            <div class="grp2">
+              <div class="row" style="grid-template-columns:minmax(0,1fr) auto"><span class="k">Ring size</span><span class="v">32 px</span></div>
+              <div class="slider"><i></i><b></b></div>
+              <div class="tiny">24 - 48 px</div>
+              <label class="sw" style="margin-top:6px"><span>Vertical layout</span><span class="toggle-mock"><i></i></span></label>
+              <label class="sw"><span>Reset time as text</span><span class="toggle-mock"><i></i></span></label>
+            </div>
+            <h4>Data</h4>
+            <div class="row" style="grid-template-columns:minmax(0,1fr) auto"><span class="k">Refresh every</span><span class="v">5 min</span></div>
+            <div class="row" style="grid-template-columns:minmax(0,1fr) auto"><span class="k">Amber above</span><span class="v">75%</span></div>
+          </div>
+        </div></div>
+      </div></div>
+
+      <div class="card card-border bg-base-100"><div class="card-body p-5 gap-3">
+        <h3 class="card-title text-lg">Tray menu</h3>
+        <div class="desktop p-3"><div class="desktop-body">
+          <div class="tray">
+            <div class="hi">Refresh now</div>
+            <div>Hide pill</div>
+            <hr>
+            <div>Settings...</div>
+            <div>Start with Windows</div>
+            <hr>
+            <div>Quit</div>
+          </div>
+        </div></div>
+        <p class="text-sm text-base-content/70">The tray icon shows the session percentage, so the pill can stay hidden.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ===================== 9. LIGHT / DARK ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">9. Light and dark</h2>
+    <div class="grid gap-5 sm:grid-cols-2">
+      <div class="desktop"><div class="desktop-body h-28"><span class="grp cap">
+        <span class="mr s32 sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+        <span class="mr s32 sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+        <span class="mr s32 sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+      </span></div></div>
+      <div class="desktop light"><div class="desktop-body h-28"><span class="grp cap light" style="background:rgba(250,250,252,.72);box-shadow:0 6px 18px rgba(0,0,0,.14), inset 0 0 0 1px rgba(0,0,0,.07)">
+        <span class="mr s32 light sev-crit"><i class="arc" style="--p:90"></i><i class="core"></i><span class="val">90</span></span>
+        <span class="mr s32 light sev-ok"><i class="arc" style="--p:17"></i><i class="core"></i><span class="val">17</span></span>
+        <span class="mr s32 light sev-ok"><i class="arc" style="--p:15"></i><i class="core"></i><span class="val">15</span></span>
+      </span></div></div>
+    </div>
+  </section>
+
+  <!-- ===================== 10. DECIDE ===================== -->
+  <section class="mb-12">
+    <h2 class="text-2xl font-semibold mb-1">10. Last four answers</h2>
+    <p class="text-base-content/60 mb-5">After this I write the implementation plan.</p>
+    <form class="card card-border bg-base-100" data-lavish-question="final"
+      onsubmit="event.preventDefault(); const f=new FormData(event.currentTarget); const parts=['Labels: '+f.get('labels'),'Background: '+f.get('bg'),'Direction: '+f.get('dir'),'Size range: '+f.get('range')]; window.lavish.queuePrompt('Usage Pill final UI decisions - '+parts.join('; '), {tag:'choices', text: parts.join(' | '), element: event.currentTarget, data:{question:'final', answers:Object.fromEntries(f)}});">
+      <div class="card-body gap-6 p-5">
+
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Labels</legend>
+          <div class="flex flex-wrap gap-5">
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="labels" value="no labels, order plus tooltip" checked> No labels</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="labels" value="small label under each ring"> Under each ring</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="labels" value="small label beside each ring"> Beside each ring</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="labels" value="labels are a switch in settings, off by default"> A switch in settings</label>
+          </div>
+        </fieldset>
+
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Background</legend>
+          <div class="flex flex-wrap gap-5">
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="bg" value="capsule behind the rings" checked> Capsule</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="bg" value="bare rings, no capsule"> Bare rings</label>
+          </div>
+        </fieldset>
+
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Direction</legend>
+          <div class="flex flex-wrap gap-5">
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="dir" value="horizontal only" checked> Horizontal only</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="dir" value="both, switchable in settings"> Both, switchable</label>
+          </div>
+        </fieldset>
+
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend">Size range</legend>
+          <div class="flex flex-wrap gap-5">
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="range" value="24 to 48 px, default 32" checked> 24-48, default 32</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="range" value="20 to 64 px, default 32"> 20-64, default 32</label>
+            <label class="flex items-center gap-2 cursor-pointer"><input type="radio" class="radio radio-sm" name="range" value="three fixed steps: small, medium, large"> 3 fixed steps</label>
+          </div>
+        </fieldset>
+
+        <div class="card-actions"><button type="submit" class="btn btn-primary btn-sm">Queue these answers</button></div>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2 class="text-2xl font-semibold mb-4">Next</h2>
+    <ul class="steps steps-vertical lg:steps-horizontal w-full">
+      <li class="step step-primary">Spec committed</li>
+      <li class="step step-primary">Ring is the pill</li>
+      <li class="step step-primary">Three rings side by side</li>
+      <li class="step step-primary">Pixel details (this page)</li>
+      <li class="step">Implementation plan</li>
+      <li class="step">Build + screenshot on Windows</li>
+    </ul>
+  </section>
+
+</main>
+</body>
+</html>

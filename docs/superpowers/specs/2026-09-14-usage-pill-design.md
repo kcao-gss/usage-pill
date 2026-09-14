@@ -111,34 +111,77 @@ Rules:
 
 The app never writes the credentials file and never performs an OAuth refresh.
 
-## 5. Pill face
+## 5. Pill appearance
 
-- Default face: session percentage only, for example `90%`.
-- Optional face fields, each independently toggled in settings:
-  - weekly-all percentage
-  - time until session reset (`2h14m`)
-  - per-model weekly percentage with the model name
-- The pill width follows its content. The user drags the pill to any position; the
-  position is saved and restored on the next start.
-- Click the pill opens `DetailPopup`, which always shows every limit, every reset
-  time, and extra-credit spend.
+Decided in the UI review of 2026-09-14 (`docs/superpowers/specs/2026-09-14-usage-pill-ui.html`).
 
-Colour rules:
+### 5.1 Shape
 
-- `severity: critical` from the API renders red.
-- `percent >= warnThreshold` (default 75) renders amber.
-- Otherwise neutral.
-- A small dot in the pill marks a stale value.
+The pill is a row of circular ring gauges inside one acrylic capsule.
+
+- Each ring is a donut: the arc is the utilization, the remaining circle is the
+  track. The arc starts at 12 o'clock and fills clockwise as usage grows.
+- The percentage sits on an acrylic disc inside its own ring, as a bare number
+  with no `%` sign. `100` is rendered at a reduced font size so it fits.
+- Ring order, left to right: Session (5 hour), Weekly all models, Weekly per model.
+- No text labels. The order plus the tooltip plus the detail card identify the rings.
+- The capsule carries the drag surface and the shadow.
+
+### 5.2 Geometry
+
+| Property | Value |
+|---|---|
+| Ring diameter | `ringSizePx`, range 24-48, default 32 |
+| Ring thickness | `ringSizePx * 0.094`, so 3 px at the default |
+| Font size inside the ring | `ringSizePx * 0.344`, so 11 px at the default |
+| Gap between rings | `ringSizePx * 0.25`, so 8 px at the default |
+| Capsule padding | 5 px on the long axis, 7 px on the short axis |
+| Corner radius | fully round (half the short side) |
+| Total at default, 3 rings, horizontal | 126 x 42 px |
+| Total at default, 1 ring | 46 x 42 px |
+
+All values are in device-independent pixels; WPF scales them by the monitor DPI.
+
+### 5.3 Behaviour
+
+- Each ring is an independent switch in settings. Session cannot be switched off.
+  Switching a ring off removes it and the capsule shrinks.
+- Orientation is horizontal or vertical, switchable in settings. Vertical stacks
+  the same rings in the same order, top to bottom.
+- The window is a normal always-on-top window; it is always clickable.
+- Dragging the capsule moves the pill. On release it snaps to the nearest screen
+  edge or corner when the pointer is within 16 px of it. The position is saved.
+- Hover shows a tooltip only. Left click opens `DetailPopup`. Right click opens
+  the same menu as the tray icon.
+- Light and dark follow the Windows app theme.
+
+### 5.4 Colour
+
+Each ring takes its colour from its own value:
+
+- `severity: critical` from the API renders red (`#F2555A`).
+- `percent >= warnThresholdPercent` (default 75) renders amber (`#F5B73D`).
+- Otherwise green (`#3ECF8E`).
+- No data or a disabled limit renders grey (`#6C7684`).
+
+A stale snapshot dims the whole capsule to 60% opacity and puts a grey dot on the
+top right of the first ring.
+
+### 5.5 Optional text tail
+
+Separate from the rings, settings can add the session reset time as text
+(`RESETS 2h 14m`) inside the capsule, to the right of the rings in horizontal
+mode and below them in vertical mode.
 
 ## 6. Error handling
 
-| Condition | Pill face | Tooltip | Poller behavior |
+| Condition | Rings | Tooltip | Poller behavior |
 |---|---|---|---|
-| HTTP 429 | last good value + stale dot | "Rate limited, retrying at HH:MM" | Honour `Retry-After`; else exponential backoff 5→10→20→40 min, cap 60 min |
-| Network or 5xx error | last good value + stale dot | error summary | Exponential backoff 1→2→4 min, cap 15 min |
-| Credentials file missing or unparsable | `-` | "Claude Code not logged in" | Retry at normal interval |
-| `expiresAt` in the past AND request returns 401 | `!` | "Claude Code login expired - start Claude Code to refresh" | Retry at normal interval |
-| No data yet at startup | `...` | "Loading" | - |
+| HTTP 429 | last good values, capsule at 60% opacity, grey dot | "Rate limited, retrying at HH:MM" | Honour `Retry-After`; else exponential backoff 5→10→20→40 min, cap 60 min |
+| Network or 5xx error | last good values, capsule at 60% opacity, grey dot | error summary | Exponential backoff 1→2→4 min, cap 15 min |
+| Credentials file missing or unparsable | all rings grey and empty, `-` inside | "Claude Code not logged in" | Retry at normal interval |
+| `expiresAt` in the past AND request returns 401 | first ring amber and full with `!`, others grey | "Claude Code login expired - start Claude Code to refresh" | Retry at normal interval |
+| No data yet at startup | all rings grey and empty, `--` inside | "Loading" | - |
 
 Unhandled exceptions in a poll cycle MUST be caught, logged, and surfaced as the
 error state. A failed poll never terminates the poller.
@@ -150,7 +193,10 @@ error state. A failed poll never terminates the poller.
 ```json
 {
   "pollIntervalMinutes": 5,
-  "face": { "session": true, "weekly": false, "resetTime": false, "perModelWeekly": false },
+  "rings": { "session": true, "weeklyAll": true, "weeklyPerModel": true },
+  "ringSizePx": 32,
+  "orientation": "horizontal",
+  "showResetTimeText": false,
   "warnThresholdPercent": 75,
   "opacity": 0.92,
   "window": { "left": 40, "top": 40 },
@@ -161,6 +207,9 @@ error state. A failed poll never terminates the poller.
 - Written atomically (temp file plus move).
 - A corrupt file falls back to defaults and is replaced on the next save.
 - `startWithWindows` toggles a shortcut in the user Startup folder. No registry writes.
+- `rings.session` is forced to `true` on load; the session ring cannot be switched off.
+- `ringSizePx` is clamped to 24-48 on load. `orientation` accepts `horizontal` or
+  `vertical`; any other value falls back to `horizontal`.
 
 ## 8. Testing
 
@@ -171,14 +220,19 @@ Unit tests (xunit, `UsagePill.Tests`):
 - A response with an empty `limits[]` falls back to `five_hour` / `seven_day`.
 - Unknown `kind` values and unknown top-level keys do not throw.
 - Backoff: `Retry-After` is honoured; repeated 429 grows the delay and stops at the cap.
-- Colour selection at threshold boundaries.
+- Colour selection at threshold boundaries, per ring.
+- Ring geometry: thickness, font size, and gap derived from `ringSizePx` at 24, 32, and 48.
+- Settings clamping: out-of-range `ringSizePx`, unknown `orientation`, and
+  `rings.session: false` are all corrected on load.
 - Settings round trip, and corrupt settings fall back to defaults.
 
 End-to-end verification (manual, required before "done"):
 
 - Build and run the real `.exe` on Windows.
-- Screenshot the pill and the detail popup, and check the look pixel by pixel.
-- Verify drag, position persistence, tray actions, and quit.
+- Screenshot the pill and the detail popup, and check the look pixel by pixel
+  against `docs/superpowers/specs/2026-09-14-usage-pill-ui.html`.
+- Verify drag, edge snapping, position persistence, orientation switch, ring
+  switches, the size slider, tray actions, and quit.
 
 ## 9. Non-goals for MVP
 
@@ -187,6 +241,7 @@ End-to-end verification (manual, required before "done"):
 - Usage history, charts, or notifications.
 - An installer. A published folder plus an `.exe` is enough.
 
-## 10. Open items
+## 10. Resolved
 
-- The exact pill visual design is decided in a separate UI review before implementation.
+All design and interface questions are settled. The implementation plan is at
+`docs/superpowers/plans/2026-09-14-usage-pill.md`.
