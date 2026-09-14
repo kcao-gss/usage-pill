@@ -1,0 +1,11 @@
+<Window x:Class="UsagePill.Ui.DetailPopup"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Usage detail"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight" Deactivated="OnDeactivated">
+    <Border Background="#F0202430" CornerRadius="10" BorderBrush="#17FFFFFF" BorderThickness="1" Padding="13,12">
+        <StackPanel x:Name="Body" Width="246" />
+    </Border>
+</Window>
