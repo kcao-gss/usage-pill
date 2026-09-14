@@ -19,5 +19,5 @@ public sealed class TolerantEnumConverter<TEnum> : JsonConverter<TEnum> where TE
     }
 
     public override void Write(Utf8JsonWriter writer, TEnum value, JsonSerializerOptions options)
-        => writer.WriteStringValue(value.ToString());
+        => writer.WriteStringValue(JsonNamingPolicy.CamelCase.ConvertName(value.ToString()));
 }

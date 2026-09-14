@@ -32,12 +32,21 @@ public sealed record AppSettings
     public WindowPosition Window { get; init; } = new();
     public bool StartWithWindows { get; init; }
 
-    public AppSettings Normalized() => this with
+    public AppSettings Normalized()
     {
-        PollIntervalMinutes = Math.Clamp(PollIntervalMinutes, 1, 60),
-        RingSizePx = Math.Clamp(RingSizePx, 24, 48),
-        WarnThresholdPercent = Math.Clamp(WarnThresholdPercent, 1, 100),
-        Opacity = Math.Clamp(Opacity, 0.3, 1.0),
-        Rings = Rings with { Session = true },
-    };
+        // System.Text.Json ignores the non-nullable annotations, so a settings file holding
+        // "rings": null or "window": null lands a null on these properties. Substitute a fresh
+        // instance rather than let the load throw.
+        var rings = Rings ?? new RingSwitches();
+
+        return this with
+        {
+            PollIntervalMinutes = Math.Clamp(PollIntervalMinutes, 1, 60),
+            RingSizePx = Math.Clamp(RingSizePx, 24, 48),
+            WarnThresholdPercent = Math.Clamp(WarnThresholdPercent, 1, 100),
+            Opacity = Math.Clamp(Opacity, 0.3, 1.0),
+            Rings = rings with { Session = true },
+            Window = Window ?? new WindowPosition(),
+        };
+    }
 }

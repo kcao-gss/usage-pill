@@ -38,11 +38,19 @@ public sealed class SettingsStore
 
     public void Save(AppSettings settings)
     {
-        var directory = Path.GetDirectoryName(_path)!;
-        Directory.CreateDirectory(directory);
+        var directory = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
 
-        var temp = _path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(settings.Normalized(), Options));
-        File.Move(temp, _path, overwrite: true);
+        // A unique name keeps concurrent saves off each other's temp file.
+        var temp = _path + "." + Guid.NewGuid().ToString("n") + ".tmp";
+        try
+        {
+            File.WriteAllText(temp, JsonSerializer.Serialize(settings.Normalized(), Options));
+            File.Move(temp, _path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temp)) File.Delete(temp);
+        }
     }
 }

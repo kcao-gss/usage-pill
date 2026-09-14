@@ -79,5 +79,78 @@ public class SettingsTests : IDisposable
         Assert.True(loaded.Rings.Session);
     }
 
+    [Fact]
+    public void LoadSurvivesANullRingsObject()
+    {
+        File.WriteAllText(Path_, """{ "ringSizePx": 40, "rings": null }""");
+
+        var loaded = new SettingsStore(Path_).Load();
+
+        Assert.NotNull(loaded.Rings);
+        Assert.True(loaded.Rings.Session);
+        Assert.True(loaded.Rings.WeeklyAll);
+        Assert.True(loaded.Rings.WeeklyPerModel);
+        Assert.Equal(40, loaded.RingSizePx);
+    }
+
+    [Fact]
+    public void LoadSurvivesANullWindowObject()
+    {
+        File.WriteAllText(Path_, """{ "ringSizePx": 40, "window": null }""");
+
+        var loaded = new SettingsStore(Path_).Load();
+
+        Assert.NotNull(loaded.Window);
+        Assert.Equal(40, loaded.Window.Left);
+        Assert.Equal(40, loaded.Window.Top);
+    }
+
+    [Fact]
+    public void SaveWritesTheOrientationInLowerCase()
+    {
+        new SettingsStore(Path_).Save(new AppSettings { Orientation = PillOrientation.Vertical });
+
+        var json = File.ReadAllText(Path_);
+
+        Assert.Contains("\"orientation\": \"vertical\"", json);
+        Assert.DoesNotContain("Vertical", json);
+    }
+
+    [Fact]
+    public void SaveAcceptsAPathWithNoDirectoryPart()
+    {
+        var previous = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(_dir);
+        try
+        {
+            new SettingsStore("bare-settings.json").Save(new AppSettings { RingSizePx = 40 });
+
+            Assert.Equal(40, new SettingsStore("bare-settings.json").Load().RingSizePx);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(previous);
+        }
+    }
+
+    [Fact]
+    public void SaveLeavesNoTempFileBehindWhenTheMoveFails()
+    {
+        // A directory sitting on the target path makes the final move fail.
+        Directory.CreateDirectory(Path_);
+
+        // The exact failure type is platform specific; what matters is the cleanup.
+        Assert.NotNull(Record.Exception(() => new SettingsStore(Path_).Save(new AppSettings())));
+        Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
+    }
+
+    [Fact]
+    public void SaveLeavesNoTempFileBehindOnSuccess()
+    {
+        new SettingsStore(Path_).Save(new AppSettings());
+
+        Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
+    }
+
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 }
