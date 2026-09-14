@@ -1,7 +1,9 @@
 using System.IO;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
+using Microsoft.CSharp.RuntimeBinder;
 using UsagePill.Claude;
 using UsagePill.Core;
 using UsagePill.Polling;
@@ -41,6 +43,7 @@ public partial class App : Application
     private DispatcherTimer _settingsSaveDebounceTimer = null!;
     private SettingsWindow? _settingsWindow;
     private int _activePollIntervalMinutes;
+    private bool _tornDown;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -104,7 +107,7 @@ public partial class App : Application
         _tray = new TrayIcon();
         _tray.StartWithWindowsChecked = startupEnabled;
 
-        _pill.LeftClicked += (_, _) => ToggleDetail();
+        _pill.LeftClicked += (_, pressedAt) => ToggleDetail(pressedAt);
         _pill.RightClicked += (_, _) => _tray.ShowContextMenu();
 
         _tray.RefreshRequested += async (_, _) => await _poller.RefreshNowAsync();
@@ -131,7 +134,7 @@ public partial class App : Application
         _tray.Apply(state, _settings.WarnThresholdPercent);
     }
 
-    private void ToggleDetail()
+    private void ToggleDetail(DateTime pressedAt)
     {
         if (_detail.IsVisible)
         {
@@ -139,7 +142,10 @@ public partial class App : Application
             return;
         }
 
-        if (DateTime.UtcNow - _detail.LastHiddenAt < DetailReopenGuard) return;
+        // Compared against the moment this click's mouse-down fired, not against now: LeftClicked
+        // only reaches here after DragMove releases, so "now" would measure how long the button
+        // was held rather than how soon this click followed the deactivation-triggered hide.
+        if (pressedAt - _detail.LastHiddenAt < DetailReopenGuard) return;
 
         _detail.ShowNear(_pill);
     }
@@ -211,9 +217,13 @@ public partial class App : Application
         {
             StartupShortcut.Set(desired);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or COMException or InvalidOperationException or RuntimeBinderException)
         {
-            // Best effort: a locked Startup folder must not crash the app.
+            // Best effort: a locked Startup folder, an unregistered/blocked wshom.ocx, or any
+            // other shortcut-writer failure must not crash the app - but it must not be silent
+            // either, so the user knows the toggle did not take effect.
+            _tray.ShowError("Start with Windows", "Could not update the Windows Startup shortcut. " + ex.Message);
         }
 
         var actual = StartupShortcut.IsEnabled();
@@ -258,6 +268,9 @@ public partial class App : Application
     /// </summary>
     private void TeardownPartialStartup()
     {
+        if (_tornDown) return;
+        _tornDown = true;
+
         _intervalDebounceTimer?.Stop();
         _settingsSaveDebounceTimer?.Stop();
         _poller?.Dispose();
@@ -270,6 +283,13 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (_tornDown)
+        {
+            base.OnExit(e);
+            return;
+        }
+        _tornDown = true;
+
         _settingsSaveDebounceTimer.Stop();
         PersistSettings();
 

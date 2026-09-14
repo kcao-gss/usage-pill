@@ -46,7 +46,7 @@ public partial class PillWindow : Window
     private void OnCapsuleSizeChanged(object sender, SizeChangedEventArgs e)
         => Capsule.CornerRadius = new CornerRadius(Math.Min(Capsule.ActualWidth, Capsule.ActualHeight) / 2);
 
-    public event EventHandler? LeftClicked;
+    public event EventHandler<DateTime>? LeftClicked;
     public event EventHandler? RightClicked;
 
     public WindowPosition CurrentPosition => new() { Left = Left + ShadowMargin, Top = Top + ShadowMargin };
@@ -231,6 +231,11 @@ public partial class PillWindow : Window
 
     private void OnCapsuleMouseDown(object sender, MouseButtonEventArgs e)
     {
+        // Captured before DragMove blocks: this is the same moment PillWindow's own activation
+        // deactivates (and hides) any open DetailPopup, so the composition root can compare its
+        // reopen guard against how long the deactivation-triggered hide preceded this click,
+        // not against how long the button happened to stay down before release.
+        var mouseDownAt = DateTime.UtcNow;
         _dragged = false;
         var before = new Point(Left, Top);
         DragMove();
@@ -244,7 +249,7 @@ public partial class PillWindow : Window
             // DragMove blocks until the button is released and frequently swallows the
             // MouseLeftButtonUp that would normally follow, so the click is raised here
             // instead of waiting on a separate mouse-up handler.
-            LeftClicked?.Invoke(this, EventArgs.Empty);
+            LeftClicked?.Invoke(this, mouseDownAt);
         }
     }
 

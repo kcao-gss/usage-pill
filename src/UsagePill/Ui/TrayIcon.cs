@@ -73,6 +73,19 @@ public sealed class TrayIcon : IDisposable
         set => _startWithWindowsItem.Checked = value;
     }
 
+    /// <summary>
+    /// Surfaces a background failure (for example a Startup-folder shortcut write that hit a
+    /// COM or ACL error) as a balloon tip anchored to the tray icon, instead of swallowing it
+    /// silently or letting it escape to the unhandled-exception handler.
+    /// </summary>
+    public void ShowError(string title, string message)
+    {
+        _icon.BalloonTipTitle = title;
+        _icon.BalloonTipText = message;
+        _icon.BalloonTipIcon = ToolTipIcon.Error;
+        _icon.ShowBalloonTip(5000);
+    }
+
     public void ShowContextMenu()
     {
         NativeMethods.SetForegroundWindow(_owner.Handle);
@@ -128,6 +141,8 @@ public sealed class TrayIcon : IDisposable
         _menu.Dispose();
         _current?.Dispose();
         if (_currentIconHandle != IntPtr.Zero) NativeMethods.DestroyIcon(_currentIconHandle);
+        _current = null;
+        _currentIconHandle = IntPtr.Zero;
         _owner.Dispose();
     }
 
