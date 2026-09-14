@@ -11,6 +11,7 @@ namespace UsagePill.Ui;
 public partial class PillWindow : Window
 {
     private const double SnapDistance = 16;
+    private const double ShadowMargin = 22;
 
     private static readonly (LimitKind Kind, string Label)[] Order =
     {
@@ -32,17 +33,23 @@ public partial class PillWindow : Window
         InitializeComponent();
         _settings = settings;
         _theme = theme;
-        _theme.Changed += (_, _) => Dispatcher.Invoke(Rebuild);
+        _theme.Changed += OnThemeChanged;
+        Capsule.SizeChanged += OnCapsuleSizeChanged;
 
-        Left = settings.Window.Left;
-        Top = settings.Window.Top;
+        Left = settings.Window.Left - ShadowMargin;
+        Top = settings.Window.Top - ShadowMargin;
         Rebuild();
     }
+
+    private void OnThemeChanged(object? sender, EventArgs e) => Dispatcher.Invoke(Rebuild);
+
+    private void OnCapsuleSizeChanged(object sender, SizeChangedEventArgs e)
+        => Capsule.CornerRadius = new CornerRadius(Math.Min(Capsule.ActualWidth, Capsule.ActualHeight) / 2);
 
     public event EventHandler? LeftClicked;
     public event EventHandler? RightClicked;
 
-    public WindowPosition CurrentPosition => new() { Left = Left, Top = Top };
+    public WindowPosition CurrentPosition => new() { Left = Left + ShadowMargin, Top = Top + ShadowMargin };
 
     public void Apply(AppSettings settings)
     {
@@ -61,7 +68,7 @@ public partial class PillWindow : Window
         var size = _settings.RingSizePx;
         var gap = RingGeometry.Gap(size);
 
-        Capsule.CornerRadius = new CornerRadius((size + 2 * RingGeometry.CapsulePaddingShort) / 2);
+        Capsule.CornerRadius = new CornerRadius((size + 2 * RingGeometry.CapsulePaddingLong) / 2);
         Capsule.Padding = _settings.Orientation == PillOrientation.Horizontal
             ? new Thickness(RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong)
             : new Thickness(RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort);
@@ -114,12 +121,14 @@ public partial class PillWindow : Window
                 FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
                 Foreground = new SolidColorBrush(_theme.IsDark
                     ? Color.FromRgb(0xEA, 0xEE, 0xF5)
                     : Color.FromRgb(0x16, 0x19, 0x1F)),
                 Margin = Rings.Orientation == Orientation.Horizontal
-                    ? new Thickness(gap, 0, gap / 2, 0)
+                    ? new Thickness(gap, 0, gap, 0)
                     : new Thickness(0, gap, 0, 0),
             };
             Rings.Children.Add(_resetText);
@@ -140,7 +149,7 @@ public partial class PillWindow : Window
     private void Render()
     {
         var stale = _state.Status == UsageStatus.Stale;
-        var snapshot = _state.Snapshot;
+        var snapshot = _state.Status is UsageStatus.Ok or UsageStatus.Stale ? _state.Snapshot : null;
 
         for (var i = 0; i < _gauges.Count; i++)
         {
@@ -154,6 +163,7 @@ public partial class PillWindow : Window
                 gauge.Percent = 100;
                 gauge.RingColor = RingGeometry.Amber;
                 gauge.Text = "!";
+                SetTextOpacity(gauge, 1.0);
                 continue;
             }
 
@@ -162,12 +172,14 @@ public partial class PillWindow : Window
                 gauge.Percent = 0;
                 gauge.RingColor = RingGeometry.Grey;
                 gauge.Text = _state.Status == UsageStatus.Loading ? "--" : "-";
+                SetTextOpacity(gauge, 0.5);
                 continue;
             }
 
             gauge.Percent = limit.Percent;
             gauge.RingColor = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, _settings.WarnThresholdPercent);
             gauge.Text = RingGeometry.FormatPercent(limit.Percent);
+            SetTextOpacity(gauge, 1.0);
         }
 
         if (_resetText is not null)
@@ -180,16 +192,22 @@ public partial class PillWindow : Window
         ToolTip = BuildTooltip();
     }
 
+    private static void SetTextOpacity(RingGauge gauge, double opacity)
+    {
+        if (gauge.TextBrush is SolidColorBrush brush) brush.Opacity = opacity;
+    }
+
     private string BuildTooltip()
     {
         if (_state.Status == UsageStatus.NoCredentials) return "Claude Code not logged in";
         if (_state.Status == UsageStatus.AuthExpired) return "Login expired - start Claude Code to refresh";
-        if (_state.Snapshot is null) return "Loading";
+        if (_state.Status == UsageStatus.Loading) return "Loading";
 
+        var snapshot = _state.Snapshot;
         var text = new StringBuilder();
         foreach (var (kind, label) in Order)
         {
-            var limit = _state.Snapshot.Find(kind);
+            var limit = snapshot?.Find(kind);
             if (limit is null) continue;
 
             var name = kind == LimitKind.WeeklyScoped && limit.ScopeLabel is { } scope ? $"Weekly, {scope}" : label;
@@ -234,11 +252,28 @@ public partial class PillWindow : Window
 
     private void SnapToEdges()
     {
-        var area = SystemParameters.WorkArea;
+        var capsuleLeft = Left + ShadowMargin;
+        var capsuleTop = Top + ShadowMargin;
+        var capsuleWidth = Capsule.ActualWidth;
+        var capsuleHeight = Capsule.ActualHeight;
 
-        if (Math.Abs(Left - area.Left) <= SnapDistance) Left = area.Left;
-        if (Math.Abs(area.Right - (Left + ActualWidth)) <= SnapDistance) Left = area.Right - ActualWidth;
-        if (Math.Abs(Top - area.Top) <= SnapDistance) Top = area.Top;
-        if (Math.Abs(area.Bottom - (Top + ActualHeight)) <= SnapDistance) Top = area.Bottom - ActualHeight;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var centre = new System.Drawing.Point(
+            (int)Math.Round((capsuleLeft + capsuleWidth / 2) * dpi.DpiScaleX),
+            (int)Math.Round((capsuleTop + capsuleHeight / 2) * dpi.DpiScaleY));
+        var bounds = System.Windows.Forms.Screen.FromPoint(centre).WorkingArea;
+        var area = new Rect(
+            bounds.Left / dpi.DpiScaleX,
+            bounds.Top / dpi.DpiScaleY,
+            bounds.Width / dpi.DpiScaleX,
+            bounds.Height / dpi.DpiScaleY);
+
+        if (Math.Abs(capsuleLeft - area.Left) <= SnapDistance) capsuleLeft = area.Left;
+        if (Math.Abs(area.Right - (capsuleLeft + capsuleWidth)) <= SnapDistance) capsuleLeft = area.Right - capsuleWidth;
+        if (Math.Abs(capsuleTop - area.Top) <= SnapDistance) capsuleTop = area.Top;
+        if (Math.Abs(area.Bottom - (capsuleTop + capsuleHeight)) <= SnapDistance) capsuleTop = area.Bottom - capsuleHeight;
+
+        Left = capsuleLeft - ShadowMargin;
+        Top = capsuleTop - ShadowMargin;
     }
 }

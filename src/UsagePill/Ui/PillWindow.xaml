@@ -6,6 +6,7 @@
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         SizeToContent="WidthAndHeight" UseLayoutRounding="True" SnapsToDevicePixels="True">
     <Border x:Name="Capsule"
+            Margin="22"
             Background="#BD181C24"
             BorderBrush="#17FFFFFF" BorderThickness="1"
             MouseLeftButtonDown="OnCapsuleMouseDown"
