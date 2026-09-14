@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Time.Testing;
 using UsagePill.Claude;
 using UsagePill.Core;
 
@@ -33,7 +34,10 @@ public class ClaudeUsageProviderTests : IDisposable
     }
 
     private static ClaudeUsageProvider Provider(ClaudeCredentialStore store, StubHandler handler) =>
-        new(store, new HttpClient(handler), TimeProvider.System);
+        Provider(store, handler, TimeProvider.System);
+
+    private static ClaudeUsageProvider Provider(ClaudeCredentialStore store, StubHandler handler, TimeProvider clock) =>
+        new(store, new HttpClient(handler), clock);
 
     [Fact]
     public async Task SendsTheBearerTokenAndTheBetaHeader()
@@ -45,6 +49,9 @@ public class ClaudeUsageProviderTests : IDisposable
 
         var snapshot = await Provider(Store(), handler).FetchAsync(CancellationToken.None);
 
+        Assert.Equal(HttpMethod.Get, handler.LastRequest!.Method);
+        // Literal, not ClaudeUsageProvider.UsageUrl: a typo in the constant must fail here.
+        Assert.Equal("https://api.anthropic.com/api/oauth/usage", handler.LastRequest!.RequestUri!.ToString());
         Assert.Equal("Bearer", handler.LastRequest!.Headers.Authorization!.Scheme);
         Assert.Equal("tok-123", handler.LastRequest!.Headers.Authorization!.Parameter);
         Assert.Equal("oauth-2025-04-20", handler.LastRequest!.Headers.GetValues("anthropic-beta").Single());
@@ -74,6 +81,24 @@ public class ClaudeUsageProviderTests : IDisposable
             () => Provider(Store(), handler).FetchAsync(CancellationToken.None));
 
         Assert.Equal(TimeSpan.FromSeconds(90), error.RetryAfter);
+    }
+
+    [Fact]
+    public async Task TooManyRequestsWithAnHttpDateUsesTheInjectedClock()
+    {
+        var now = new DateTimeOffset(2026, 9, 14, 12, 0, 0, TimeSpan.Zero);
+        var clock = new FakeTimeProvider(now);
+        var handler = new StubHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new RetryConditionHeaderValue(now.AddMinutes(1));
+            return response;
+        });
+
+        var error = await Assert.ThrowsAsync<RateLimitedException>(
+            () => Provider(Store(), handler, clock).FetchAsync(CancellationToken.None));
+
+        Assert.Equal(TimeSpan.FromMinutes(1), error.RetryAfter);
     }
 
     [Fact]

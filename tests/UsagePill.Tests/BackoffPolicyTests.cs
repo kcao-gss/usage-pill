@@ -23,6 +23,22 @@ public class BackoffPolicyTests
     }
 
     [Fact]
+    public void ZeroRetryAfterIsFlooredAtSixtySeconds()
+    {
+        var policy = Policy();
+
+        Assert.Equal(TimeSpan.FromSeconds(60), policy.NextDelay(new RateLimitedException(TimeSpan.Zero)));
+    }
+
+    [Fact]
+    public void RetryAfterBelowTheFloorIsRaisedToTheFloor()
+    {
+        var policy = Policy();
+
+        Assert.Equal(TimeSpan.FromSeconds(60), policy.NextDelay(new RateLimitedException(TimeSpan.FromSeconds(5))));
+    }
+
+    [Fact]
     public void RateLimitWithoutRetryAfterClimbsAndCapsAtSixtyMinutes()
     {
         var policy = Policy();

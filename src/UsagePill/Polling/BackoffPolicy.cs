@@ -13,6 +13,10 @@ public sealed class BackoffPolicy
     private static readonly TimeSpan TransientFirst = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan TransientCap = TimeSpan.FromMinutes(15);
 
+    // The endpoint can answer "Retry-After: 0", and a past HTTP-date clamps to zero.
+    // Backing off for zero seconds would spin against the server that just rate limited us.
+    private static readonly TimeSpan RetryAfterFloor = TimeSpan.FromSeconds(60);
+
     private readonly TimeSpan _normalInterval;
     private int _rateLimitStep;
     private int _transientStep;
@@ -31,7 +35,10 @@ public sealed class BackoffPolicy
 
             case RateLimitedException rateLimited:
                 _transientStep = 0;
-                if (rateLimited.RetryAfter is { } retryAfter) return retryAfter;
+                if (rateLimited.RetryAfter is { } retryAfter)
+                {
+                    return retryAfter > RetryAfterFloor ? retryAfter : RetryAfterFloor;
+                }
                 return Climb(RateLimitFirst, RateLimitCap, ref _rateLimitStep);
 
             default:

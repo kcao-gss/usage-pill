@@ -52,14 +52,14 @@ public sealed class ClaudeUsageProvider : IUsageProvider
         return ClaudeUsageJson.Parse(json, _clock.GetUtcNow());
     }
 
-    private static TimeSpan? ReadRetryAfter(HttpResponseMessage response)
+    private TimeSpan? ReadRetryAfter(HttpResponseMessage response)
     {
         var header = response.Headers.RetryAfter;
         if (header is null) return null;
         if (header.Delta is { } delta) return delta;
         if (header.Date is { } date)
         {
-            var wait = date - DateTimeOffset.UtcNow;
+            var wait = date - _clock.GetUtcNow();
             return wait > TimeSpan.Zero ? wait : TimeSpan.Zero;
         }
         return null;
