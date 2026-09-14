@@ -31,6 +31,19 @@ public partial class SettingsWindow : Window
 
     public event EventHandler<AppSettings>? SettingsChanged;
 
+    /// <summary>
+    /// Reconciles the checkbox with a Start-with-Windows state decided elsewhere (the tray menu
+    /// toggle, or the actual Startup folder contents at startup), without republishing it back
+    /// out as a fresh SettingsChanged event.
+    /// </summary>
+    public void SetStartWithWindows(bool enabled)
+    {
+        _loading = true;
+        StartWithWindows.IsChecked = enabled;
+        _current = _current with { StartWithWindows = enabled };
+        _loading = false;
+    }
+
     private void Hook()
     {
         RingWeeklyAll.Checked += (_, _) => Publish();

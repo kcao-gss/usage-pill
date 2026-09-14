@@ -7,6 +7,7 @@
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12">
     <StackPanel Margin="16">
         <TextBlock Text="RINGS" Opacity="0.5" FontWeight="SemiBold" Margin="0,0,0,6" />
+        <CheckBox x:Name="RingSession" Content="Session (5 hours)" Margin="0,3" Foreground="#FFEEF1F6" IsChecked="True" IsEnabled="False" />
         <CheckBox x:Name="RingWeeklyAll" Content="Weekly, all models" Margin="0,3" Foreground="#FFEEF1F6" />
         <CheckBox x:Name="RingWeeklyPerModel" Content="Weekly, per model" Margin="0,3" Foreground="#FFEEF1F6" />
 

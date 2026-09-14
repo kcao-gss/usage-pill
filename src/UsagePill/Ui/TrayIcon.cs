@@ -10,6 +10,8 @@ namespace UsagePill.Ui;
 public sealed class TrayIcon : IDisposable
 {
     private readonly NotifyIcon _icon = new();
+    private readonly ContextMenuStrip _menu;
+    private readonly ToolStripMenuItem _startWithWindowsItem;
 
     // NotifyIcon shows its own ContextMenuStrip automatically, with correct dismiss-on-outside-
     // click behaviour, only when the user right-clicks the icon itself. We invoke the same menu
@@ -29,19 +31,28 @@ public sealed class TrayIcon : IDisposable
 
     private Icon? _current;
 
+    // Icon.FromHandle wraps a native HICON without taking ownership of it, so Icon.Dispose frees
+    // only the managed wrapper. The handle itself is destroyed explicitly, once the icon it backs
+    // has been replaced, to avoid leaking one HICON per Apply (every poll, and every settings
+    // change while the threshold or session percentage is visible).
+    private IntPtr _currentIconHandle;
+
     public TrayIcon()
     {
-        _owner.CreateControl();
+        _menu = new ContextMenuStrip();
+        _menu.Items.Add("Refresh now", null, (_, _) => RefreshRequested?.Invoke(this, EventArgs.Empty));
+        _menu.Items.Add("Show or hide pill", null, (_, _) => TogglePillRequested?.Invoke(this, EventArgs.Empty));
+        _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add("Settings...", null, (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty));
 
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("Refresh now", null, (_, _) => RefreshRequested?.Invoke(this, EventArgs.Empty));
-        menu.Items.Add("Show or hide pill", null, (_, _) => TogglePillRequested?.Invoke(this, EventArgs.Empty));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Settings...", null, (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Quit", null, (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty));
+        _startWithWindowsItem = new ToolStripMenuItem("Start with Windows") { CheckOnClick = false };
+        _startWithWindowsItem.Click += (_, _) => StartWithWindowsToggled?.Invoke(this, EventArgs.Empty);
+        _menu.Items.Add(_startWithWindowsItem);
 
-        _icon.ContextMenuStrip = menu;
+        _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add("Quit", null, (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty));
+
+        _icon.ContextMenuStrip = _menu;
         _icon.Text = "Usage Pill";
         _icon.Visible = true;
     }
@@ -49,7 +60,18 @@ public sealed class TrayIcon : IDisposable
     public event EventHandler? RefreshRequested;
     public event EventHandler? TogglePillRequested;
     public event EventHandler? SettingsRequested;
+    public event EventHandler? StartWithWindowsToggled;
     public event EventHandler? QuitRequested;
+
+    /// <summary>
+    /// The composition root owns reconciling this with the actual Startup folder contents (the
+    /// checkbox must never claim a state the filesystem does not back).
+    /// </summary>
+    public bool StartWithWindowsChecked
+    {
+        get => _startWithWindowsItem.Checked;
+        set => _startWithWindowsItem.Checked = value;
+    }
 
     public void ShowContextMenu()
     {
@@ -67,13 +89,15 @@ public sealed class TrayIcon : IDisposable
 
         _icon.Text = session is null ? "Usage Pill - no data" : $"Claude session {text}%";
 
-        var next = Render(text, Color.FromArgb(wpfColor.R, wpfColor.G, wpfColor.B), session?.Percent ?? 0);
+        var (next, handle) = Render(text, Color.FromArgb(wpfColor.R, wpfColor.G, wpfColor.B), session?.Percent ?? 0);
         _icon.Icon = next;
         _current?.Dispose();
+        if (_currentIconHandle != IntPtr.Zero) NativeMethods.DestroyIcon(_currentIconHandle);
         _current = next;
+        _currentIconHandle = handle;
     }
 
-    private static Icon Render(string text, Color color, double percent)
+    private static (Icon Icon, IntPtr Handle) Render(string text, Color color, double percent)
     {
         using var bitmap = new Bitmap(32, 32);
         using (var g = Graphics.FromImage(bitmap))
@@ -93,14 +117,17 @@ public sealed class TrayIcon : IDisposable
             g.DrawString(text, font, brush, (32 - size.Width) / 2, (32 - size.Height) / 2);
         }
 
-        return Icon.FromHandle(bitmap.GetHicon());
+        var handle = bitmap.GetHicon();
+        return (Icon.FromHandle(handle), handle);
     }
 
     public void Dispose()
     {
         _icon.Visible = false;
         _icon.Dispose();
+        _menu.Dispose();
         _current?.Dispose();
+        if (_currentIconHandle != IntPtr.Zero) NativeMethods.DestroyIcon(_currentIconHandle);
         _owner.Dispose();
     }
 
@@ -108,5 +135,8 @@ public sealed class TrayIcon : IDisposable
     {
         [DllImport("user32.dll")]
         internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        internal static extern bool DestroyIcon(IntPtr hIcon);
     }
 }

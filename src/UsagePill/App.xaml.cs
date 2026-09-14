@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
@@ -17,6 +18,16 @@ public partial class App : Application
     // rebuild once the user settles on a value.
     private static readonly TimeSpan IntervalDebounce = TimeSpan.FromMilliseconds(800);
 
+    // Coalesces a burst of SettingsChanged events (a slider drag can raise up to a hundred) into
+    // a single settings.json write, without ever leaving a change unwritten: OpenSettings' Closed
+    // handler and OnExit both flush synchronously regardless of this timer's state.
+    private static readonly TimeSpan SettingsSaveDebounce = TimeSpan.FromMilliseconds(500);
+
+    // See DetailPopup.LastHiddenAt: the click that dismisses the popup deactivates it (hiding it)
+    // before PillWindow.LeftClicked is raised for that same click. A click landing this soon
+    // after a deactivation-triggered hide is dismiss-only, not a request to reopen.
+    private static readonly TimeSpan DetailReopenGuard = TimeSpan.FromMilliseconds(250);
+
     private SettingsStore _settingsStore = null!;
     private AppSettings _settings = null!;
     private ThemeWatcher _theme = null!;
@@ -27,14 +38,47 @@ public partial class App : Application
     private HttpClient _http = null!;
     private IUsageProvider _provider = null!;
     private DispatcherTimer _intervalDebounceTimer = null!;
+    private DispatcherTimer _settingsSaveDebounceTimer = null!;
+    private SettingsWindow? _settingsWindow;
     private int _activePollIntervalMinutes;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
+        // An unhandled exception on the UI thread would otherwise terminate the process without
+        // OnExit running, stranding the tray icon and leaving unsaved settings on disk. Shutting
+        // down explicitly instead routes through the normal OnExit teardown.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            args.Handled = true;
+            Shutdown();
+        };
+
+        try
+        {
+            BuildAndStart();
+        }
+        catch
+        {
+            TeardownPartialStartup();
+            throw;
+        }
+    }
+
+    private void BuildAndStart()
+    {
         _settingsStore = new SettingsStore(SettingsStore.DefaultPath());
         _settings = _settingsStore.Load();
+
+        // The Startup-folder shortcut, not the persisted flag, is the source of truth: a user
+        // who deletes the shortcut by hand, or copies settings.json to another machine, must not
+        // see a checkbox that lies about what will actually happen at the next logon.
+        var startupEnabled = StartupShortcut.IsEnabled();
+        if (_settings.StartWithWindows != startupEnabled)
+        {
+            _settings = _settings with { StartWithWindows = startupEnabled };
+        }
 
         _theme = new ThemeWatcher();
         _theme.Start();
@@ -45,12 +89,20 @@ public partial class App : Application
         _intervalDebounceTimer = new DispatcherTimer { Interval = IntervalDebounce };
         _intervalDebounceTimer.Tick += (_, _) => ApplyPendingInterval();
 
+        _settingsSaveDebounceTimer = new DispatcherTimer { Interval = SettingsSaveDebounce };
+        _settingsSaveDebounceTimer.Tick += (_, _) =>
+        {
+            _settingsSaveDebounceTimer.Stop();
+            PersistSettings();
+        };
+
         _activePollIntervalMinutes = _settings.PollIntervalMinutes;
         _poller = CreatePoller(_activePollIntervalMinutes);
 
         _pill = new PillWindow(_settings, _theme);
         _detail = new DetailPopup(_settings.WarnThresholdPercent);
         _tray = new TrayIcon();
+        _tray.StartWithWindowsChecked = startupEnabled;
 
         _pill.LeftClicked += (_, _) => ToggleDetail();
         _pill.RightClicked += (_, _) => _tray.ShowContextMenu();
@@ -58,6 +110,7 @@ public partial class App : Application
         _tray.RefreshRequested += async (_, _) => await _poller.RefreshNowAsync();
         _tray.TogglePillRequested += (_, _) => TogglePill();
         _tray.SettingsRequested += (_, _) => OpenSettings();
+        _tray.StartWithWindowsToggled += (_, _) => ToggleStartWithWindows();
         _tray.QuitRequested += (_, _) => Shutdown();
 
         _pill.Show();
@@ -80,8 +133,15 @@ public partial class App : Application
 
     private void ToggleDetail()
     {
-        if (_detail.IsVisible) _detail.Hide();
-        else _detail.ShowNear(_pill);
+        if (_detail.IsVisible)
+        {
+            _detail.Hide();
+            return;
+        }
+
+        if (DateTime.UtcNow - _detail.LastHiddenAt < DetailReopenGuard) return;
+
+        _detail.ShowNear(_pill);
     }
 
     private void TogglePill()
@@ -92,6 +152,12 @@ public partial class App : Application
 
     private void OpenSettings()
     {
+        if (_settingsWindow is not null)
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+
         var window = new SettingsWindow(_settings);
         window.SettingsChanged += (_, updated) =>
         {
@@ -100,8 +166,13 @@ public partial class App : Application
             _pill.Apply(updated);
             _detail.WarnThresholdPercent = updated.WarnThresholdPercent;
             Render(_poller.State);
-            if (startupChanged) StartupShortcut.Set(updated.StartWithWindows);
-            _settingsStore.Save(updated with { Window = _pill.CurrentPosition });
+
+            if (startupChanged) ReconcileStartWithWindows(updated.StartWithWindows);
+
+            // Coalesce a burst of slider-drag events into one write; flushed for real on window
+            // close and on exit regardless of whether this timer has fired yet.
+            _settingsSaveDebounceTimer.Stop();
+            _settingsSaveDebounceTimer.Start();
 
             // Debounce a changed poll interval instead of rebuilding on every slider tick; see
             // IntervalDebounce above.
@@ -111,7 +182,44 @@ public partial class App : Application
                 _intervalDebounceTimer.Start();
             }
         };
+        window.Closed += (_, _) =>
+        {
+            _settingsWindow = null;
+            _settingsSaveDebounceTimer.Stop();
+            PersistSettings();
+        };
+
+        _settingsWindow = window;
         window.Show();
+    }
+
+    private void ToggleStartWithWindows()
+    {
+        ReconcileStartWithWindows(!StartupShortcut.IsEnabled());
+        _settingsSaveDebounceTimer.Stop();
+        PersistSettings();
+    }
+
+    /// <summary>
+    /// Applies a desired Start-with-Windows state and reconciles every surface - the settings
+    /// flag, the tray checkbox, and an open settings window - with what actually exists on disk
+    /// afterward, since a locked Startup folder can make the write itself fail.
+    /// </summary>
+    private void ReconcileStartWithWindows(bool desired)
+    {
+        try
+        {
+            StartupShortcut.Set(desired);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best effort: a locked Startup folder must not crash the app.
+        }
+
+        var actual = StartupShortcut.IsEnabled();
+        _settings = _settings with { StartWithWindows = actual };
+        _tray.StartWithWindowsChecked = actual;
+        _settingsWindow?.SetStartWithWindows(actual);
     }
 
     /// <summary>
@@ -131,12 +239,44 @@ public partial class App : Application
         old.Dispose();
     }
 
+    private void PersistSettings()
+    {
+        try
+        {
+            _settingsStore.Save(_settings with { Window = _pill.CurrentPosition });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best effort: a locked or full settings file must not crash the app or block
+            // teardown - see OnExit, which relies on this never throwing.
+        }
+    }
+
+    /// <summary>
+    /// Disposes whatever OnStartup managed to construct before it failed, so a partial startup
+    /// never leaves a ghost tray icon (or any other native resource) behind.
+    /// </summary>
+    private void TeardownPartialStartup()
+    {
+        _intervalDebounceTimer?.Stop();
+        _settingsSaveDebounceTimer?.Stop();
+        _poller?.Dispose();
+        _detail?.Close();
+        _tray?.Dispose();
+        _pill?.Close();
+        _theme?.Dispose();
+        _http?.Dispose();
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
-        _settingsStore.Save(_settings with { Window = _pill.CurrentPosition });
+        _settingsSaveDebounceTimer.Stop();
+        PersistSettings();
+
         _intervalDebounceTimer.Stop();
         _poller.Dispose();
         _detail.Close();
+        _settingsWindow?.Close();
         _tray.Dispose();
         _theme.Dispose();
         _http.Dispose();
