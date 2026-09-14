@@ -141,11 +141,73 @@ public class UsagePollerTests
     }
 
     [Fact]
+    public async Task ForeignCancellationPublishesFailureAndReschedulesTheTimer()
+    {
+        var (poller, provider, clock) = Build();
+        provider.EnqueueFailure(new TaskCanceledException("http request timed out"));
+        provider.EnqueueSuccess(9);
+
+        poller.Start();
+        await poller.WaitForIdleAsync();
+
+        Assert.Equal(UsageStatus.Stale, poller.State.Status);
+
+        // A TaskCanceledException the poller never requested (our own token was never
+        // cancelled) must be treated as an ordinary transient failure: the ladder's first
+        // step is one minute, and the loop must still reschedule itself.
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await poller.WaitForIdleAsync();
+
+        Assert.Equal(UsageStatus.Ok, poller.State.Status);
+        Assert.Equal(9, poller.State.Snapshot!.Find(LimitKind.Session)!.Percent);
+    }
+
+    [Fact]
+    public async Task ThrowingSubscriberDoesNotBreakTheLoopOrCorruptTheBackoffLadder()
+    {
+        var (poller, provider, clock) = Build();
+        provider.EnqueueSuccess(1);
+        provider.EnqueueSuccess(2);
+        poller.StateChanged += (_, _) => throw new InvalidOperationException("subscriber boom");
+
+        poller.Start();
+        await poller.WaitForIdleAsync();
+
+        Assert.Equal(UsageStatus.Ok, poller.State.Status);
+        Assert.Equal(1, poller.State.Snapshot!.Find(LimitKind.Session)!.Percent);
+
+        // A throwing subscriber must not be mistaken for a provider failure: the next
+        // poll is still due after the normal five minute interval, not a shorter,
+        // wrongly-advanced backoff step.
+        clock.Advance(TimeSpan.FromMinutes(5));
+        await poller.WaitForIdleAsync();
+
+        Assert.Equal(UsageStatus.Ok, poller.State.Status);
+        Assert.Equal(2, poller.State.Snapshot!.Find(LimitKind.Session)!.Percent);
+    }
+
+    [Fact]
+    public async Task AuthExpiredAfterSuccessKeepsTheOldSnapshot()
+    {
+        var (poller, provider, _) = Build();
+        provider.EnqueueSuccess(55);
+        provider.EnqueueFailure(new AuthExpiredException("token expired"));
+
+        await poller.RefreshNowAsync();
+        await poller.RefreshNowAsync();
+
+        Assert.Equal(UsageStatus.AuthExpired, poller.State.Status);
+        Assert.Equal(55, poller.State.Snapshot!.Find(LimitKind.Session)!.Percent);
+    }
+
+    [Fact]
     public async Task DisposeDuringAnInFlightPollDoesNotThrow()
     {
         var provider = new BlockingProvider();
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 9, 14, 12, 0, 0, TimeSpan.Zero));
         var poller = new UsagePoller(provider, new BackoffPolicy(TimeSpan.FromMinutes(5)), clock);
+        var seen = new List<UsageStatus>();
+        poller.StateChanged += (_, state) => seen.Add(state.Status);
 
         var refresh = poller.RefreshNowAsync();
         poller.Dispose();
@@ -155,5 +217,10 @@ public class UsagePollerTests
             DateTimeOffset.UnixEpoch));
 
         await refresh;
+
+        // A disposed poller must never publish a result it was mid-flight on: state and
+        // subscribers stay exactly as they were before Dispose() ran.
+        Assert.Equal(UsageStatus.Loading, poller.State.Status);
+        Assert.Empty(seen);
     }
 }

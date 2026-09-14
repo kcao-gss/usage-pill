@@ -15,7 +15,7 @@ public sealed class UsagePoller : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private ITimer? _timer;
-    private Task _inFlight = Task.CompletedTask;
+    private volatile Task _inFlight = Task.CompletedTask;
     private volatile bool _disposed;
 
     public UsagePoller(IUsageProvider provider, BackoffPolicy backoff, TimeProvider clock)
@@ -31,7 +31,7 @@ public sealed class UsagePoller : IDisposable
 
     public void Start()
     {
-        if (_timer is not null) return;
+        if (_disposed || _timer is not null) return;
 
         // Create the timer disarmed first, so the field is assigned before the first
         // callback can run: the fake clock used in tests invokes a due-zero callback
@@ -51,9 +51,22 @@ public sealed class UsagePoller : IDisposable
     {
         if (_disposed) return;
 
+        // _cts.Token throws ObjectDisposedException once Dispose() has run; read it once
+        // up front and reuse it for both waits below, instead of risking a second, later
+        // access racing a concurrent Dispose().
+        CancellationToken token;
         try
         {
-            await _gate.WaitAsync(_cts.Token).ConfigureAwait(false);
+            token = _cts.Token;
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            await _gate.WaitAsync(token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -71,15 +84,15 @@ public sealed class UsagePoller : IDisposable
             Exception? failure = null;
             try
             {
-                var snapshot = await _provider.FetchAsync(_cts.Token).ConfigureAwait(false);
+                var snapshot = await _provider.FetchAsync(token).ConfigureAwait(false);
                 Publish(new UsageState(UsageStatus.Ok, snapshot, null, null));
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
             {
-                return;
-            }
-            catch (ObjectDisposedException)
-            {
+                // Only our own teardown cancels this token. A foreign OperationCanceledException
+                // (for example HttpClient.Timeout expiring the caller's uncancelled token) falls
+                // through to the general handler below and is treated as an ordinary failure, so
+                // one HTTP timeout can never stop the poll loop.
                 return;
             }
             catch (Exception e)
@@ -129,8 +142,22 @@ public sealed class UsagePoller : IDisposable
 
     private void Publish(UsageState state)
     {
+        // Dispose() may run while a suspended poll is resuming; a disposed poller must
+        // never mutate State or notify a subscriber that has already been torn down.
+        if (_disposed) return;
+
         State = state;
-        StateChanged?.Invoke(this, state);
+        try
+        {
+            StateChanged?.Invoke(this, state);
+        }
+        catch (Exception)
+        {
+            // A misbehaving subscriber must never be misattributed to the provider (that
+            // would corrupt the backoff ladder on an otherwise successful poll) or break
+            // the poll loop (the timer callback is fire-and-forget, so an unhandled
+            // exception here would silently stop polling forever).
+        }
     }
 
     public void Dispose()
