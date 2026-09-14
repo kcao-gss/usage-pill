@@ -119,17 +119,18 @@ public class SettingsTests : IDisposable
     [Fact]
     public void SaveAcceptsAPathWithNoDirectoryPart()
     {
-        var previous = Directory.GetCurrentDirectory();
-        Directory.SetCurrentDirectory(_dir);
+        // A bare file name has an empty directory part whatever the current directory is,
+        // so this exercises the guard in Save without touching process-wide state.
+        var name = "bare-settings-" + Guid.NewGuid().ToString("n") + ".json";
         try
         {
-            new SettingsStore("bare-settings.json").Save(new AppSettings { RingSizePx = 40 });
+            new SettingsStore(name).Save(new AppSettings { RingSizePx = 40 });
 
-            Assert.Equal(40, new SettingsStore("bare-settings.json").Load().RingSizePx);
+            Assert.Equal(40, new SettingsStore(name).Load().RingSizePx);
         }
         finally
         {
-            Directory.SetCurrentDirectory(previous);
+            File.Delete(name);
         }
     }
 

@@ -17,6 +17,23 @@ public sealed class RingGauge : FrameworkElement
     public static readonly DependencyProperty TextBrushProperty = Register(nameof(TextBrush), (Brush)Brushes.White);
     public static readonly DependencyProperty ShowStaleDotProperty = Register(nameof(ShowStaleDot), false);
 
+    /// <summary>Constant for the control, so resolve the fallback list once, not once per render.</summary>
+    private static readonly Typeface NumberTypeface = new(
+        new FontFamily("Segoe UI Variable Text, Segoe UI"),
+        FontStyles.Normal,
+        FontWeights.SemiBold,
+        FontStretches.Normal);
+
+    private static readonly Brush StaleDotRingBrush = FrozenBrush(Color.FromArgb(0xEA, 0x14, 0x18, 0x1F));
+    private static readonly Brush StaleDotFillBrush = FrozenBrush(Color.FromRgb(0x9A, 0xA4, 0xB2));
+
+    private static SolidColorBrush FrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
     private static DependencyProperty Register<T>(string name, T defaultValue) => DependencyProperty.Register(
         name, typeof(T), typeof(RingGauge),
         new FrameworkPropertyMetadata(defaultValue, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.AffectsMeasure));
@@ -46,7 +63,9 @@ public sealed class RingGauge : FrameworkElement
         var percent = Math.Clamp(Percent, 0, 100);
         if (percent > 0)
         {
-            var arcPen = new Pen(new SolidColorBrush(RingColor), thickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var arcBrush = new SolidColorBrush(RingColor);
+            arcBrush.Freeze();
+            var arcPen = new Pen(arcBrush, thickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
             dc.DrawGeometry(null, arcPen, BuildArc(centre, radius, percent));
         }
 
@@ -58,7 +77,7 @@ public sealed class RingGauge : FrameworkElement
                 Text,
                 CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
-                new Typeface(new FontFamily("Segoe UI Variable Text, Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
+                NumberTypeface,
                 FitFontSize(),
                 TextBrush,
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
@@ -68,9 +87,11 @@ public sealed class RingGauge : FrameworkElement
 
         if (ShowStaleDot)
         {
-            var dotCentre = new Point(size - 4, 4);
-            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(0xEA, 0x14, 0x18, 0x1F)), null, dotCentre, 5, 5);
-            dc.DrawEllipse(new SolidColorBrush(Color.FromRgb(0x9A, 0xA4, 0xB2)), null, dotCentre, 3.5, 3.5);
+            // The mockup puts an 8px grey disc inside a 2px dark ring at right: -1px; top: -1px,
+            // so the dark outer radius is 6, the grey radius is 4, and the centre sits 3px in.
+            var dotCentre = new Point(size - 3, 3);
+            dc.DrawEllipse(StaleDotRingBrush, null, dotCentre, 6, 6);
+            dc.DrawEllipse(StaleDotFillBrush, null, dotCentre, 4, 4);
         }
     }
 
@@ -81,7 +102,9 @@ public sealed class RingGauge : FrameworkElement
     {
         if (percent >= 100)
         {
-            return new EllipseGeometry(centre, radius, radius);
+            var circle = new EllipseGeometry(centre, radius, radius);
+            circle.Freeze();
+            return circle;
         }
 
         var angle = percent / 100.0 * 2 * Math.PI;
