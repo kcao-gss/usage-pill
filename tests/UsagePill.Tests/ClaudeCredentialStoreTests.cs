@@ -55,5 +55,74 @@ public class ClaudeCredentialStoreTests : IDisposable
         Assert.Throws<NoCredentialsException>(() => store.Read());
     }
 
+    [Fact]
+    public void ThrowsNoCredentialsWhenTheFileIsEmpty()
+    {
+        var store = new ClaudeCredentialStore(WriteFile(""));
+
+        Assert.Throws<NoCredentialsException>(() => store.Read());
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("123")]
+    [InlineData("\"x\"")]
+    public void ThrowsNoCredentialsWhenTheRootIsNotAnObject(string json)
+    {
+        var store = new ClaudeCredentialStore(WriteFile(json));
+
+        Assert.Throws<NoCredentialsException>(() => store.Read());
+    }
+
+    [Fact]
+    public void ThrowsNoCredentialsWhenTheOauthNodeIsNotAnObject()
+    {
+        var store = new ClaudeCredentialStore(WriteFile("""{ "claudeAiOauth": "sk-ant-oat01-abc" }"""));
+
+        Assert.Throws<NoCredentialsException>(() => store.Read());
+    }
+
+    [Fact]
+    public void ThrowsNoCredentialsWhenTheAccessTokenIsNotAString()
+    {
+        var store = new ClaudeCredentialStore(WriteFile("""{ "claudeAiOauth": { "accessToken": 42 } }"""));
+
+        Assert.Throws<NoCredentialsException>(() => store.Read());
+    }
+
+    [Fact]
+    public void DegradesTheExpiryWhenItIsNotANumber()
+    {
+        var path = WriteFile("""
+        { "claudeAiOauth": { "accessToken": "sk-ant-oat01-abc", "expiresAt": "soon" } }
+        """);
+
+        var credentials = new ClaudeCredentialStore(path).Read();
+
+        Assert.Equal("sk-ant-oat01-abc", credentials.AccessToken);
+        Assert.Equal(DateTimeOffset.MinValue, credentials.ExpiresAt);
+    }
+
+    [Fact]
+    public void NeverPrintsTheAccessToken()
+    {
+        var credentials = new ClaudeCredentials("sk-ant-oat01-abc", DateTimeOffset.UnixEpoch, "team");
+
+        var text = credentials.ToString();
+
+        Assert.DoesNotContain("sk-ant-oat01-abc", text);
+        Assert.Contains("team", text);
+    }
+
+    [Fact]
+    public void DefaultPathPointsAtTheClaudeCredentialsFile()
+    {
+        var path = ClaudeCredentialStore.DefaultPath();
+
+        Assert.EndsWith(Path.Combine(".claude", ".credentials.json"), path);
+        Assert.True(Path.IsPathRooted(path));
+    }
+
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 }

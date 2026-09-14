@@ -34,7 +34,8 @@ public sealed class ClaudeCredentialStore
         try
         {
             using var doc = JsonDocument.Parse(content);
-            if (!doc.RootElement.TryGetProperty("claudeAiOauth", out var oauth) ||
+            if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                !doc.RootElement.TryGetProperty("claudeAiOauth", out var oauth) ||
                 oauth.ValueKind != JsonValueKind.Object ||
                 !oauth.TryGetProperty("accessToken", out var token) ||
                 token.ValueKind != JsonValueKind.String)
@@ -42,7 +43,8 @@ public sealed class ClaudeCredentialStore
                 throw new NoCredentialsException("No claudeAiOauth.accessToken in the credentials file.");
             }
 
-            var expiresAt = oauth.TryGetProperty("expiresAt", out var e) && e.TryGetInt64(out var ms)
+            var expiresAt = oauth.TryGetProperty("expiresAt", out var e) &&
+                e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var ms)
                 ? DateTimeOffset.FromUnixTimeMilliseconds(ms)
                 : DateTimeOffset.MinValue;
 
