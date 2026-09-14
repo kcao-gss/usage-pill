@@ -77,10 +77,21 @@ public static class ClaudeUsageJson
     private static decimal? ReadMoney(JsonElement spend, string property)
     {
         if (!spend.TryGetProperty(property, out var node) || node.ValueKind != JsonValueKind.Object) return null;
-        if (!node.TryGetProperty("amount_minor", out var minor) || !minor.TryGetDecimal(out var amount)) return null;
+        if (!node.TryGetProperty("amount_minor", out var minor) ||
+            minor.ValueKind != JsonValueKind.Number ||
+            !minor.TryGetDecimal(out var amount))
+        {
+            return null;
+        }
 
         var exponent = 2;
-        if (node.TryGetProperty("exponent", out var e) && e.TryGetInt32(out var parsed)) exponent = parsed;
+        if (node.TryGetProperty("exponent", out var e) &&
+            e.ValueKind == JsonValueKind.Number &&
+            e.TryGetInt32(out var parsed) &&
+            parsed is >= 0 and <= 9)
+        {
+            exponent = parsed;
+        }
 
         var divisor = 1m;
         for (var i = 0; i < exponent; i++) divisor *= 10m;

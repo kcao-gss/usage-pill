@@ -77,4 +77,68 @@ public class ClaudeUsageJsonTests
         Assert.Empty(snapshot.Limits);
         Assert.Null(snapshot.Spend);
     }
+
+    [Fact]
+    public void ANullAmountDegradesSpendToNullWithoutThrowing()
+    {
+        const string json = """
+        {
+          "limits": [
+            { "kind": "session", "percent": 30, "severity": "normal", "resets_at": null, "scope": null }
+          ],
+          "spend": {
+            "used": { "amount_minor": null, "currency": "USD", "exponent": 2 },
+            "limit": { "amount_minor": 20000, "currency": "USD", "exponent": 2 },
+            "percent": 0
+          }
+        }
+        """;
+
+        var snapshot = ClaudeUsageJson.Parse(json, Captured);
+
+        Assert.Null(snapshot.Spend);
+        Assert.Equal(30, snapshot.Find(LimitKind.Session)!.Percent);
+    }
+
+    [Fact]
+    public void AStringAmountDegradesSpendToNullWithoutThrowing()
+    {
+        const string json = """
+        {
+          "limits": [
+            { "kind": "session", "percent": 30, "severity": "normal", "resets_at": null, "scope": null }
+          ],
+          "spend": {
+            "used": { "amount_minor": 0, "currency": "USD", "exponent": 2 },
+            "limit": { "amount_minor": "20000", "currency": "USD", "exponent": 2 },
+            "percent": 0
+          }
+        }
+        """;
+
+        var snapshot = ClaudeUsageJson.Parse(json, Captured);
+
+        Assert.Null(snapshot.Spend);
+        Assert.Equal(30, snapshot.Find(LimitKind.Session)!.Percent);
+    }
+
+    [Fact]
+    public void AnOutOfRangeExponentFallsBackToTwo()
+    {
+        const string json = """
+        {
+          "limits": [],
+          "spend": {
+            "used": { "amount_minor": 500, "currency": "USD", "exponent": 40 },
+            "limit": { "amount_minor": 20000, "currency": "USD", "exponent": -3 },
+            "percent": 2
+          }
+        }
+        """;
+
+        var snapshot = ClaudeUsageJson.Parse(json, Captured);
+
+        Assert.Equal(5m, snapshot.Spend!.Used);
+        Assert.Equal(200m, snapshot.Spend!.Limit);
+    }
 }
