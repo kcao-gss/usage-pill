@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {
+    "gss-traveler": {
+      "type": "http",
+      "url": "https://traveler.globalshopsolutions.dev/mcp",
+      "headers": {
+        "Authorization": "!bun run /home/kcao/Workspaces/platform-workflows/workspace/GSPI-checkout/packages/plugin/src/auth/cli.ts token gss-traveler"
+      }
+    },
+    "gss-brain": {
+      "type": "http",
+      "url": "https://mcp-intelligence.globalshopsolutions.dev/mcp",
+      "headers": {
+        "Authorization": "!bun run /home/kcao/Workspaces/platform-workflows/workspace/GSPI-checkout/packages/plugin/src/auth/cli.ts token gss-brain"
+      }
+    }
+  }
+}
