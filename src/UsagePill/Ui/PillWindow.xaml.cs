@@ -51,6 +51,8 @@ public partial class PillWindow : Window
 
     public WindowPosition CurrentPosition => new() { Left = Left + ShadowMargin, Top = Top + ShadowMargin };
 
+    public Rect CapsuleBounds => new(Left + ShadowMargin, Top + ShadowMargin, Capsule.ActualWidth, Capsule.ActualHeight);
+
     public void Apply(AppSettings settings)
     {
         _settings = settings;
@@ -68,7 +70,6 @@ public partial class PillWindow : Window
         var size = _settings.RingSizePx;
         var gap = RingGeometry.Gap(size);
 
-        Capsule.CornerRadius = new CornerRadius((size + 2 * RingGeometry.CapsulePaddingLong) / 2);
         Capsule.Padding = _settings.Orientation == PillOrientation.Horizontal
             ? new Thickness(RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong)
             : new Thickness(RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort);

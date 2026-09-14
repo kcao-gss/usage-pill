@@ -104,8 +104,9 @@ public partial class DetailPopup : Window
         // Hidden until repositioned, so a card that must flip above the pill or clamp against a
         // screen edge never flashes at the naive below-the-pill position first.
         Opacity = 0;
-        Left = pill.Left;
-        Top = pill.Top + pill.ActualHeight + ShowGap;
+        var capsule = pill.CapsuleBounds;
+        Left = capsule.Left;
+        Top = capsule.Bottom + ShowGap;
         Show();
         Reposition(pill);
         Activate();
@@ -121,19 +122,20 @@ public partial class DetailPopup : Window
     /// </summary>
     private void Reposition(PillWindow pill)
     {
+        var capsule = pill.CapsuleBounds;
         var dpi = VisualTreeHelper.GetDpi(this);
         var pillCentre = new System.Drawing.Point(
-            (int)Math.Round((pill.Left + pill.ActualWidth / 2) * dpi.DpiScaleX),
-            (int)Math.Round((pill.Top + pill.ActualHeight / 2) * dpi.DpiScaleY));
+            (int)Math.Round((capsule.Left + capsule.Width / 2) * dpi.DpiScaleX),
+            (int)Math.Round((capsule.Top + capsule.Height / 2) * dpi.DpiScaleY));
         var bounds = System.Windows.Forms.Screen.FromPoint(pillCentre).WorkingArea;
         var area = new Rect(
             bounds.Left / dpi.DpiScaleX, bounds.Top / dpi.DpiScaleY,
             bounds.Width / dpi.DpiScaleX, bounds.Height / dpi.DpiScaleY);
 
-        var left = pill.Left;
-        var top = pill.Top + pill.ActualHeight + ShowGap;
+        var left = capsule.Left;
+        var top = capsule.Bottom + ShowGap;
 
-        if (top + ActualHeight > area.Bottom) top = pill.Top - ActualHeight - ShowGap;
+        if (top + ActualHeight > area.Bottom) top = capsule.Top - ActualHeight - ShowGap;
         if (top < area.Top) top = area.Top;
 
         if (left + ActualWidth > area.Right) left = area.Right - ActualWidth;
