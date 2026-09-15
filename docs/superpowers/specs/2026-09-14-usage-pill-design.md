@@ -40,6 +40,8 @@ Token source: `%USERPROFILE%\.claude\.credentials.json`, JSON shape:
 }
 ```
 
+Only `claudeAiOauth.accessToken` is read. The other fields are shown for context.
+
 Verified live response (2026-09-14, HTTP 200), trimmed to the fields this app uses:
 
 ```json
@@ -177,11 +179,16 @@ mode and below them in vertical mode.
 
 | Condition | Rings | Tooltip | Poller behavior |
 |---|---|---|---|
-| HTTP 429 | last good values, capsule at 60% opacity, grey dot | "Rate limited, retrying at HH:MM" | Honour `Retry-After`; else exponential backoff 5→10→20→40 min, cap 60 min |
-| Network or 5xx error | last good values, capsule at 60% opacity, grey dot | error summary | Exponential backoff 1→2→4 min, cap 15 min |
+| HTTP 429 | last good values, capsule at 60% opacity, grey dot | "Rate limited, retrying at HH:MM" | Honour `Retry-After`, but never below a 60 second floor; without the header, exponential backoff 5→10→20→40 min, cap 60 min |
+| Network or 5xx error | last good values, capsule at 60% opacity, grey dot | error summary | Exponential backoff 1→2→4→8 min, cap 15 min |
 | Credentials file missing or unparsable | all rings grey and empty, `-` inside | "Claude Code not logged in" | Retry at normal interval |
-| `expiresAt` in the past AND request returns 401 | first ring amber and full with `!`, others grey | "Claude Code login expired - start Claude Code to refresh" | Retry at normal interval |
+| Request returns 401 or 403 | first ring amber and full with `!`, others grey | "Login expired - start Claude Code to refresh" | Retry at normal interval |
 | No data yet at startup | all rings grey and empty, `--` inside | "Loading" | - |
+
+The 429 floor exists because the endpoint is known to return `Retry-After: 0`, which
+would otherwise make the poller spin against the service that just rate limited it.
+Auth expiry is driven by the HTTP status alone, not by the local `expiresAt` value,
+which the app does not read.
 
 Unhandled exceptions in a poll cycle MUST be caught, logged, and surfaced as the
 error state. A failed poll never terminates the poller.
