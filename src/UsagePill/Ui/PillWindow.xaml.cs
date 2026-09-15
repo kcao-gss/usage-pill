@@ -1,7 +1,9 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using UsagePill.Core;
 using UsagePill.Settings;
@@ -12,6 +14,7 @@ public partial class PillWindow : Window
 {
     private const double SnapDistance = 16;
     private const double ShadowMargin = 22;
+    private const int WM_GETMINMAXINFO = 0x0024;
 
     private readonly ThemeWatcher _theme;
     private readonly List<(LimitKind Kind, RingGauge Gauge)> _gauges = new();
@@ -31,8 +34,66 @@ public partial class PillWindow : Window
 
         Left = settings.Window.Left - ShadowMargin;
         Top = settings.Window.Top - ShadowMargin;
-        Loaded += (_, _) => ConstrainToWorkArea();
+        Loaded += (_, _) =>
+        {
+            // Re-assert the window's true SizeToContent size once more, now that the source's
+            // WM_GETMINMAXINFO hook is attached and every layout/resize pass WPF runs on its own
+            // during Show() has already settled. See OnSourceInitialized for why the hook alone
+            // cannot fix this at creation time.
+            SizeToContent = SizeToContent.Manual;
+            SizeToContent = SizeToContent.WidthAndHeight;
+            ConstrainToWorkArea();
+        };
         Rebuild();
+    }
+
+    // Windows enforces its own minimum trackable window size (SM_CXMINTRACK / SM_CYMINTRACK -
+    // about 136x39 DIP on a typical desktop) on every top-level window via WM_GETMINMAXINFO,
+    // regardless of WindowStyle or ResizeMode. The vertical capsule's natural width (about
+    // 88 DIP including the shadow margin) is narrower than that floor, so without intervention
+    // the OS silently grows the window back out to it and the capsule renders as a fat rounded
+    // rectangle instead of the narrow pill SizeToContent asked for.
+    //
+    // The very first WM_GETMINMAXINFO for a new window is sent while the native HWND is being
+    // created, before OnSourceInitialized runs and before any hook can be attached, so that
+    // first clamp cannot be intercepted here - only attach the hook, so it is in place before
+    // the Loaded handler forces a corrective resize.
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        if (PresentationSource.FromVisual(this) is HwndSource source)
+        {
+            source.AddHook(ClearMinTrackSize);
+        }
+    }
+
+    private static IntPtr ClearMinTrackSize(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WM_GETMINMAXINFO)
+        {
+            var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+            info.MinTrackSize = new Point32 { X = 1, Y = 1 };
+            Marshal.StructureToPtr(info, lParam, true);
+            handled = true;
+        }
+        return IntPtr.Zero;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Point32
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public Point32 Reserved;
+        public Point32 MaxSize;
+        public Point32 MaxPosition;
+        public Point32 MinTrackSize;
+        public Point32 MaxTrackSize;
     }
 
     private void OnThemeChanged(object? sender, EventArgs e) => Dispatcher.Invoke(Rebuild);
