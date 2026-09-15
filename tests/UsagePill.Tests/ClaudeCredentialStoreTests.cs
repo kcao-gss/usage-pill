@@ -16,7 +16,7 @@ public class ClaudeCredentialStoreTests : IDisposable
     }
 
     [Fact]
-    public void ReadsTheAccessTokenAndExpiry()
+    public void ReadsTheAccessToken()
     {
         var path = WriteFile("""
         { "mcpOAuth": {}, "claudeAiOauth": {
@@ -27,8 +27,6 @@ public class ClaudeCredentialStoreTests : IDisposable
         var credentials = new ClaudeCredentialStore(path).Read();
 
         Assert.Equal("sk-ant-oat01-abc", credentials.AccessToken);
-        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1789423372964), credentials.ExpiresAt);
-        Assert.Equal("team", credentials.SubscriptionType);
     }
 
     [Fact]
@@ -92,27 +90,29 @@ public class ClaudeCredentialStoreTests : IDisposable
     }
 
     [Fact]
-    public void DegradesTheExpiryWhenItIsNotANumber()
+    public void ReadsTheAccessTokenWhenExpiresAtIsUnparsablyLarge()
     {
+        // A truncated or garbled numeric expiresAt (here, one far outside the range
+        // DateTimeOffset.FromUnixTimeMilliseconds accepts) must not throw ArgumentOutOfRangeException
+        // out of Read(): the field is not consumed by anything, so Read() must not even try to
+        // parse it, and a real access token elsewhere in the file must still come through.
         var path = WriteFile("""
-        { "claudeAiOauth": { "accessToken": "sk-ant-oat01-abc", "expiresAt": "soon" } }
+        { "claudeAiOauth": { "accessToken": "sk-ant-oat01-abc", "expiresAt": 9999999999999999 } }
         """);
 
         var credentials = new ClaudeCredentialStore(path).Read();
 
         Assert.Equal("sk-ant-oat01-abc", credentials.AccessToken);
-        Assert.Equal(DateTimeOffset.MinValue, credentials.ExpiresAt);
     }
 
     [Fact]
     public void NeverPrintsTheAccessToken()
     {
-        var credentials = new ClaudeCredentials("sk-ant-oat01-abc", DateTimeOffset.UnixEpoch, "team");
+        var credentials = new ClaudeCredentials("sk-ant-oat01-abc");
 
         var text = credentials.ToString();
 
         Assert.DoesNotContain("sk-ant-oat01-abc", text);
-        Assert.Contains("team", text);
     }
 
     [Fact]

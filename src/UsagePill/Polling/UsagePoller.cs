@@ -137,6 +137,8 @@ public sealed class UsagePoller : IDisposable
     {
         NoCredentialsException => new UsageState(UsageStatus.NoCredentials, State.Snapshot, failure.Message, retryAt),
         AuthExpiredException => new UsageState(UsageStatus.AuthExpired, State.Snapshot, failure.Message, retryAt),
+        RateLimitedException => new UsageState(UsageStatus.Stale, State.Snapshot,
+            $"Rate limited, retrying at {retryAt.ToLocalTime():HH:mm}", retryAt),
         _ => new UsageState(UsageStatus.Stale, State.Snapshot, failure.Message, retryAt),
     };
 

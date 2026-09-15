@@ -12,15 +12,8 @@ public partial class DetailPopup : Window
 {
     private const double ShowGap = 6;
 
-    private static readonly (LimitKind Kind, string Label)[] Order =
-    {
-        (LimitKind.Session, "Session"),
-        (LimitKind.WeeklyAll, "Weekly, all models"),
-        (LimitKind.WeeklyScoped, "Weekly, per model"),
-    };
-
     // Mockup section 8 dims each limit row's label with an ordinal suffix ("- 1st", "- 2nd",
-    // "- 3rd") that teaches the ring priority order. Indexed to match Order above.
+    // "- 3rd") that teaches the ring priority order. Indexed to match LimitDisplay.Order.
     private static readonly string[] Ordinals = { "1st", "2nd", "3rd" };
 
     public DetailPopup(int warnThresholdPercent)
@@ -52,13 +45,13 @@ public partial class DetailPopup : Window
 
         if (state.Status == UsageStatus.NoCredentials)
         {
-            Body.Children.Add(Line("Claude Code not logged in"));
+            Body.Children.Add(Line(LimitDisplay.NoCredentialsMessage));
             return;
         }
 
         if (state.Status == UsageStatus.AuthExpired)
         {
-            Body.Children.Add(Line("Login expired - start Claude Code to refresh"));
+            Body.Children.Add(Line(LimitDisplay.AuthExpiredMessage));
             return;
         }
 
@@ -72,13 +65,13 @@ public partial class DetailPopup : Window
         DateTimeOffset? sessionResetsAt = null;
         DateTimeOffset? weeklyResetsAt = null;
 
-        for (var i = 0; i < Order.Length; i++)
+        for (var i = 0; i < LimitDisplay.Order.Length; i++)
         {
-            var (kind, label) = Order[i];
+            var (kind, label) = LimitDisplay.Order[i];
             var limit = snapshot.Find(kind);
             if (limit is null) continue;
 
-            var name = kind == LimitKind.WeeklyScoped && limit.ScopeLabel is { } scope ? $"Weekly, {scope}" : label;
+            var name = LimitDisplay.NameFor(kind, label, limit.ScopeLabel);
             var color = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, WarnThresholdPercent);
             Body.Children.Add(Row(name, Ordinals[i], RingGeometry.FormatPercent(limit.Percent) + "%", color));
             Body.Children.Add(Meter(limit, color));
@@ -192,8 +185,9 @@ public partial class DetailPopup : Window
 
         var chip = new Ellipse
         {
-            Width = 8, Height = 8,
-            Fill = new SolidColorBrush(chipColor),
+            Width = 10, Height = 10,
+            Stroke = new SolidColorBrush(chipColor),
+            StrokeThickness = 2.5,
             Margin = new Thickness(0, 0, 6, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };

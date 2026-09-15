@@ -34,7 +34,6 @@ public sealed class BackoffPolicy
                 return _normalInterval;
 
             case RateLimitedException rateLimited:
-                _transientStep = 0;
                 if (rateLimited.RetryAfter is { } retryAfter)
                 {
                     return retryAfter > RetryAfterFloor ? retryAfter : RetryAfterFloor;
@@ -42,7 +41,6 @@ public sealed class BackoffPolicy
                 return Climb(RateLimitFirst, RateLimitCap, ref _rateLimitStep);
 
             default:
-                _rateLimitStep = 0;
                 return Climb(TransientFirst, TransientCap, ref _transientStep);
         }
     }

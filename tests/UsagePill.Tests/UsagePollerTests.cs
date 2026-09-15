@@ -88,6 +88,33 @@ public class UsagePollerTests
     }
 
     [Fact]
+    public async Task RateLimitedFailureMessageNamesTheRetryTime()
+    {
+        var (poller, provider, _) = Build();
+        provider.EnqueueSuccess(42);
+        provider.EnqueueFailure(new RateLimitedException(TimeSpan.FromMinutes(3)));
+
+        await poller.RefreshNowAsync();
+        await poller.RefreshNowAsync();
+
+        var expectedRetry = poller.State.RetryAt!.Value.ToLocalTime().ToString("HH:mm");
+        Assert.Equal($"Rate limited, retrying at {expectedRetry}", poller.State.Message);
+    }
+
+    [Fact]
+    public async Task NonRateLimitedFailureMessageIsTheRawErrorSummary()
+    {
+        var (poller, provider, _) = Build();
+        provider.EnqueueSuccess(42);
+        provider.EnqueueFailure(new HttpRequestException("connection reset"));
+
+        await poller.RefreshNowAsync();
+        await poller.RefreshNowAsync();
+
+        Assert.Equal("connection reset", poller.State.Message);
+    }
+
+    [Fact]
     public async Task MissingCredentialsPublishNoCredentials()
     {
         var (poller, provider, _) = Build();

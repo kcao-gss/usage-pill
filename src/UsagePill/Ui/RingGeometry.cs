@@ -44,6 +44,10 @@ public static class RingGeometry
 
         var hours = totalMinutes / 60;
         var minutes = totalMinutes % 60;
+        if (hours >= 24)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{hours / 24}d {hours % 24}h");
+        }
         return hours > 0
             ? string.Create(CultureInfo.InvariantCulture, $"{hours}h {minutes}m")
             : string.Create(CultureInfo.InvariantCulture, $"{minutes}m");

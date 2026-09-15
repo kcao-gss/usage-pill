@@ -43,16 +43,7 @@ public sealed class ClaudeCredentialStore
                 throw new NoCredentialsException("No claudeAiOauth.accessToken in the credentials file.");
             }
 
-            var expiresAt = oauth.TryGetProperty("expiresAt", out var e) &&
-                e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var ms)
-                ? DateTimeOffset.FromUnixTimeMilliseconds(ms)
-                : DateTimeOffset.MinValue;
-
-            var subscription = oauth.TryGetProperty("subscriptionType", out var s) && s.ValueKind == JsonValueKind.String
-                ? s.GetString()
-                : null;
-
-            return new ClaudeCredentials(token.GetString()!, expiresAt, subscription);
+            return new ClaudeCredentials(token.GetString()!);
         }
         catch (JsonException e)
         {

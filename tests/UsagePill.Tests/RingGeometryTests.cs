@@ -18,6 +18,15 @@ public class RingGeometryTests
     }
 
     [Fact]
+    public void TheRingColoursAreTheOnesTheSpecNames()
+    {
+        Assert.Equal(Color.FromRgb(0xF2, 0x55, 0x5A), RingGeometry.Red);
+        Assert.Equal(Color.FromRgb(0xF5, 0xB7, 0x3D), RingGeometry.Amber);
+        Assert.Equal(Color.FromRgb(0x3E, 0xCF, 0x8E), RingGeometry.Green);
+        Assert.Equal(Color.FromRgb(0x6C, 0x76, 0x84), RingGeometry.Grey);
+    }
+
+    [Fact]
     public void CriticalFromTheApiIsAlwaysRed()
     {
         Assert.Equal(RingGeometry.Red, RingGeometry.ColorFor(2, Severity.Critical, 75));
@@ -48,6 +57,8 @@ public class RingGeometryTests
     [InlineData(134, "2h 14m")]
     [InlineData(14, "14m")]
     [InlineData(0, "now")]
+    [InlineData(1440, "1d 0h")]
+    [InlineData(9792, "6d 19h")]
     public void ResetTimeIsShortAndHumanReadable(int minutes, string expected)
     {
         Assert.Equal(expected, RingGeometry.FormatResetIn(TimeSpan.FromMinutes(minutes)));

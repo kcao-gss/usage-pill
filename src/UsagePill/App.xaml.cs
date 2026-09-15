@@ -55,6 +55,7 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             args.Handled = true;
+            _tray?.ShowError("Usage Pill", "An unexpected error closed the app: " + args.Exception.Message);
             Shutdown();
         };
 
@@ -117,6 +118,7 @@ public partial class App : Application
         _tray.QuitRequested += (_, _) => Shutdown();
 
         _pill.Show();
+        Render(_poller.State);
         _poller.Start();
     }
 
@@ -271,14 +273,30 @@ public partial class App : Application
         if (_tornDown) return;
         _tornDown = true;
 
-        _intervalDebounceTimer?.Stop();
-        _settingsSaveDebounceTimer?.Stop();
-        _poller?.Dispose();
-        _detail?.Close();
-        _tray?.Dispose();
-        _pill?.Close();
-        _theme?.Dispose();
-        _http?.Dispose();
+        SafeDispose(() => _intervalDebounceTimer?.Stop());
+        SafeDispose(() => _settingsSaveDebounceTimer?.Stop());
+        SafeDispose(() => _poller?.Dispose());
+        SafeDispose(() => _detail?.Close());
+        SafeDispose(() => _tray?.Dispose());
+        SafeDispose(() => _pill?.Close());
+        SafeDispose(() => _theme?.Dispose());
+        SafeDispose(() => _http?.Dispose());
+    }
+
+    /// <summary>
+    /// One disposer throwing during a partial-startup teardown must never abort the rest: each
+    /// of the seven others still owns a native resource (or, for the tray icon, visibility in
+    /// the notification area) that would otherwise leak past process exit.
+    /// </summary>
+    private static void SafeDispose(Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception)
+        {
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

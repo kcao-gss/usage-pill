@@ -13,13 +13,6 @@ public partial class PillWindow : Window
     private const double SnapDistance = 16;
     private const double ShadowMargin = 22;
 
-    private static readonly (LimitKind Kind, string Label)[] Order =
-    {
-        (LimitKind.Session, "Session"),
-        (LimitKind.WeeklyAll, "Weekly, all models"),
-        (LimitKind.WeeklyScoped, "Weekly, per model"),
-    };
-
     private readonly ThemeWatcher _theme;
     private readonly List<(LimitKind Kind, RingGauge Gauge)> _gauges = new();
     private TextBlock? _resetText;
@@ -38,6 +31,7 @@ public partial class PillWindow : Window
 
         Left = settings.Window.Left - ShadowMargin;
         Top = settings.Window.Top - ShadowMargin;
+        Loaded += (_, _) => ConstrainToWorkArea();
         Rebuild();
     }
 
@@ -89,7 +83,7 @@ public partial class PillWindow : Window
         _gauges.Clear();
         _resetText = null;
 
-        foreach (var (kind, _) in Order)
+        foreach (var (kind, _) in LimitDisplay.Order)
         {
             if (!IsRingEnabled(kind)) continue;
 
@@ -209,20 +203,20 @@ public partial class PillWindow : Window
         if (gauge.TextBrush is SolidColorBrush brush) brush.Opacity = opacity;
     }
 
-    private string BuildTooltip()
+    private string? BuildTooltip()
     {
-        if (_state.Status == UsageStatus.NoCredentials) return "Claude Code not logged in";
-        if (_state.Status == UsageStatus.AuthExpired) return "Login expired - start Claude Code to refresh";
+        if (_state.Status == UsageStatus.NoCredentials) return LimitDisplay.NoCredentialsMessage;
+        if (_state.Status == UsageStatus.AuthExpired) return LimitDisplay.AuthExpiredMessage;
         if (_state.Status == UsageStatus.Loading) return "Loading";
 
         var snapshot = _state.Snapshot;
         var text = new StringBuilder();
-        foreach (var (kind, label) in Order)
+        foreach (var (kind, label) in LimitDisplay.Order)
         {
             var limit = snapshot?.Find(kind);
             if (limit is null) continue;
 
-            var name = kind == LimitKind.WeeklyScoped && limit.ScopeLabel is { } scope ? $"Weekly, {scope}" : label;
+            var name = LimitDisplay.NameFor(kind, label, limit.ScopeLabel);
             text.Append(name).Append(' ').Append(RingGeometry.FormatPercent(limit.Percent)).Append('%');
 
             if (limit.ResetsAt is { } resets)
@@ -232,12 +226,13 @@ public partial class PillWindow : Window
             text.AppendLine();
         }
 
-        if (_state.Status == UsageStatus.Stale && _state.RetryAt is { } retry)
+        if (_state.Status == UsageStatus.Stale && _state.Message is { } message)
         {
-            text.Append("Stale - retrying at ").Append(retry.ToLocalTime().ToString("HH:mm"));
+            text.Append(message);
         }
 
-        return text.ToString().TrimEnd();
+        var tooltip = text.ToString().TrimEnd();
+        return tooltip.Length == 0 ? null : tooltip;
     }
 
     private void OnCapsuleMouseDown(object sender, MouseButtonEventArgs e)

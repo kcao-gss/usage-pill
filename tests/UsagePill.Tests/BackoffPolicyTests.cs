@@ -74,6 +74,19 @@ public class BackoffPolicyTests
     }
 
     [Fact]
+    public void AlternatingFailureKindsClimbEachLadderIndependently()
+    {
+        var policy = Policy();
+
+        // 429, transient, 429, transient: an overloaded endpoint fronted by a proxy can plausibly
+        // alternate error kinds like this, and neither ladder's step may be reset by the other.
+        Assert.Equal(TimeSpan.FromMinutes(5), policy.NextDelay(new RateLimitedException(null)));
+        Assert.Equal(TimeSpan.FromMinutes(1), policy.NextDelay(new HttpRequestException("boom")));
+        Assert.Equal(TimeSpan.FromMinutes(10), policy.NextDelay(new RateLimitedException(null)));
+        Assert.Equal(TimeSpan.FromMinutes(2), policy.NextDelay(new HttpRequestException("boom")));
+    }
+
+    [Fact]
     public void AuthAndCredentialFailuresUseTheNormalInterval()
     {
         var policy = Policy();
