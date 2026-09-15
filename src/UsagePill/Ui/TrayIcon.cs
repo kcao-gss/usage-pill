@@ -43,11 +43,16 @@ public sealed class TrayIcon : IDisposable
         {
             Renderer = new DarkMenuRenderer(),
             ShowImageMargin = false,
+            ShowCheckMargin = true,
             BackColor = DarkMenuRenderer.Background,
             ForeColor = DarkMenuRenderer.Text,
             Font = new Font("Segoe UI", 9f),
         };
-        _menu.Opening += (_, _) => _menu.Region = new Region(RoundedRectPath(new Rectangle(Point.Empty, _menu.Size), 8));
+        _menu.Opening += (_, _) =>
+        {
+            using var path = RoundedRectPath(new Rectangle(Point.Empty, _menu.Size), 8);
+            _menu.Region = new Region(path);
+        };
 
         _menu.Items.Add("Refresh now", null, (_, _) => RefreshRequested?.Invoke(this, EventArgs.Empty));
         _menu.Items.Add("Show or hide pill", null, (_, _) => TogglePillRequested?.Invoke(this, EventArgs.Empty));
@@ -236,6 +241,21 @@ public sealed class TrayIcon : IDisposable
         {
             e.TextColor = Text;
             base.OnRenderItemText(e);
+        }
+
+        // ToolStripProfessionalRenderer's default OnRenderItemCheck paints the check cell from
+        // ColorTable.CheckBackground/CheckSelectedBackground (light greys) and draws the glyph
+        // in the system menu-text colour, both of which read as invisible or wrong against this
+        // dark panel. Painting the cell and glyph directly keeps Start with Windows' check mark
+        // legible without touching StartWithWindowsChecked or the item's text, order or click
+        // behaviour.
+        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+        {
+            var rect = e.ImageRectangle;
+            var backColor = e.Item.Selected || e.Item.Pressed ? Highlight : Background;
+            using var background = new SolidBrush(backColor);
+            e.Graphics.FillRectangle(background, rect);
+            ControlPaint.DrawMenuGlyph(e.Graphics, rect, MenuGlyph.Checkmark, Text, backColor);
         }
     }
 

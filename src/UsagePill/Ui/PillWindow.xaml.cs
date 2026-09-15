@@ -67,6 +67,8 @@ public partial class PillWindow : Window
 
     private void Rebuild()
     {
+        var previousWidth = Capsule.ActualWidth;
+        var previousHeight = Capsule.ActualHeight;
         var size = _settings.RingSizePx;
         var gap = RingGeometry.Gap(size);
 
@@ -141,7 +143,10 @@ public partial class PillWindow : Window
         if (IsLoaded)
         {
             UpdateLayout();
-            ConstrainToWorkArea();
+            if (Capsule.ActualWidth != previousWidth || Capsule.ActualHeight != previousHeight)
+            {
+                ConstrainToWorkArea();
+            }
         }
     }
 

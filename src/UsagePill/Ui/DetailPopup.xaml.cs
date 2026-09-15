@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -168,14 +169,19 @@ public partial class DetailPopup : Window
     // which is close enough at 11px to read as tracked without a custom render pass.
     private static string TrackUppercase(string text) => string.Join("\u200A", text.ToUpperInvariant().ToCharArray());
 
-    private static TextBlock Header(string text) => new()
+    private static TextBlock Header(string text)
     {
-        Text = TrackUppercase(text),
-        FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
-        FontSize = 11, FontWeight = FontWeights.SemiBold,
-        Foreground = new SolidColorBrush(Color.FromArgb(0x80, 0xEE, 0xF1, 0xF6)),
-        Margin = new Thickness(0, 0, 0, 8),
-    };
+        var block = new TextBlock
+        {
+            Text = TrackUppercase(text),
+            FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
+            FontSize = 11, FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromArgb(0x80, 0xEE, 0xF1, 0xF6)),
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+        AutomationProperties.SetName(block, text);
+        return block;
+    }
 
     private static UIElement Row(string key, string? ordinal, string value, Color chipColor)
     {
