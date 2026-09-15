@@ -1,11 +1,28 @@
 # Usage Pill
 
+[![CI](https://github.com/kcao-gss/usage-pill/actions/workflows/ci.yml/badge.svg)](https://github.com/kcao-gss/usage-pill/actions/workflows/ci.yml)
+[![Release](https://github.com/kcao-gss/usage-pill/actions/workflows/release.yml/badge.svg)](https://github.com/kcao-gss/usage-pill/actions/workflows/release.yml)
+
 ![The pill, three rings at the default size](docs/images/pill.png)
 
 Usage Pill is a small always-on-top Windows pill that shows your Claude subscription
 usage as three ring gauges. It sits on your desktop, polls the same numbers the
 `/usage` command in Claude Code shows, and stays out of the way otherwise: no
 window chrome, no taskbar entry, click-through avoided but never focus-stealing.
+
+## Download
+
+Grab the latest build from the [Releases page](https://github.com/kcao-gss/usage-pill/releases).
+Two zips are published for every release:
+
+| Download | Size | Needs |
+|---|---|---|
+| `UsagePill-<version>-win-x64-self-contained.zip` | about 68 MB | nothing, it runs as-is |
+| `UsagePill-<version>-win-x64-framework-dependent.zip` | under 1 MB | the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0/runtime) |
+
+Unzip anywhere and run `UsagePill.exe`. Checksums for both are in `SHA256SUMS.txt`
+on the release. Requires Windows 10 or 11 on x64, and Claude Code signed in on the
+same machine.
 
 ## What the rings mean
 

@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build, without the leading v (for a dry run with no release)
+        required: true
+        default: 0.0.0-dev
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish and release
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+            $isRelease = 'true'
+          } else {
+            $version = '${{ github.event.inputs.version }}'
+            $isRelease = 'false'
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "is_release=$isRelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Building version $version (release: $isRelease)"
+
+      - name: Restore
+        run: dotnet restore UsagePill.sln
+
+      - name: Build
+        run: dotnet build UsagePill.sln --configuration Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Test
+        run: dotnet test tests/UsagePill.Tests/UsagePill.Tests.csproj --configuration Release --no-build
+
+      # Needs no .NET install on the user's machine. Large, because WPF cannot be trimmed.
+      - name: Publish self-contained
+        run: >
+          dotnet publish src/UsagePill/UsagePill.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          --output publish/self-contained
+
+      # Small, but needs the .NET 8 Desktop Runtime installed.
+      - name: Publish framework-dependent
+        run: >
+          dotnet publish src/UsagePill/UsagePill.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained false
+          -p:Version=${{ steps.version.outputs.version }}
+          --output publish/framework-dependent
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+
+          $selfContained = "artifacts/UsagePill-$version-win-x64-self-contained.zip"
+          $frameworkDependent = "artifacts/UsagePill-$version-win-x64-framework-dependent.zip"
+
+          Compress-Archive -Path publish/self-contained/* -DestinationPath $selfContained
+          Compress-Archive -Path publish/framework-dependent/* -DestinationPath $frameworkDependent
+
+          Get-ChildItem artifacts/*.zip | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -FilePath artifacts/SHA256SUMS.txt -Append -Encoding ascii
+          }
+
+          Get-ChildItem artifacts | Format-Table Name, Length
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: UsagePill-${{ steps.version.outputs.version }}
+          path: artifacts/*
+
+      - name: Create release
+        if: steps.version.outputs.is_release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          (Get-Content .github/release-notes-template.md -Raw).Replace('{VERSION}', $version) |
+            Set-Content notes.md -Encoding utf8
+          $assets = Get-ChildItem artifacts/* | ForEach-Object { $_.FullName }
+          gh release create "v$version" @assets --title "Usage Pill $version" --notes-file notes.md
