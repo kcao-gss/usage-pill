@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using UsagePill.Core;
@@ -16,6 +17,10 @@ public partial class DetailPopup : Window
         (LimitKind.WeeklyAll, "Weekly, all models"),
         (LimitKind.WeeklyScoped, "Weekly, per model"),
     };
+
+    // Mockup section 8 dims each limit row's label with an ordinal suffix ("- 1st", "- 2nd",
+    // "- 3rd") that teaches the ring priority order. Indexed to match Order above.
+    private static readonly string[] Ordinals = { "1st", "2nd", "3rd" };
 
     public DetailPopup(int warnThresholdPercent)
     {
@@ -66,14 +71,15 @@ public partial class DetailPopup : Window
         DateTimeOffset? sessionResetsAt = null;
         DateTimeOffset? weeklyResetsAt = null;
 
-        foreach (var (kind, label) in Order)
+        for (var i = 0; i < Order.Length; i++)
         {
+            var (kind, label) = Order[i];
             var limit = snapshot.Find(kind);
             if (limit is null) continue;
 
             var name = kind == LimitKind.WeeklyScoped && limit.ScopeLabel is { } scope ? $"Weekly, {scope}" : label;
             var color = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, WarnThresholdPercent);
-            Body.Children.Add(Row(name, RingGeometry.FormatPercent(limit.Percent) + "%", color));
+            Body.Children.Add(Row(name, Ordinals[i], RingGeometry.FormatPercent(limit.Percent) + "%", color));
             Body.Children.Add(Meter(limit, color));
 
             if (kind == LimitKind.Session) sessionResetsAt = limit.ResetsAt;
@@ -82,7 +88,7 @@ public partial class DetailPopup : Window
 
         if (snapshot.Spend is { } spend)
         {
-            Body.Children.Add(Row("Extra credits", FormatSpend(spend), RingGeometry.Grey));
+            Body.Children.Add(Row("Extra credits", null, FormatSpend(spend), RingGeometry.Grey));
         }
 
         if (sessionResetsAt is not null || weeklyResetsAt is not null)
@@ -157,16 +163,21 @@ public partial class DetailPopup : Window
         return $"{symbol}{spend.Used:0.00} / {symbol}{spend.Limit:0}";
     }
 
+    // WPF's TextBlock has no letter-spacing property. The mockup's `.win h4` tracking (0.06em)
+    // is approximated by interleaving a hair space (U+200A) between the uppercased characters,
+    // which is close enough at 11px to read as tracked without a custom render pass.
+    private static string TrackUppercase(string text) => string.Join("\u200A", text.ToUpperInvariant().ToCharArray());
+
     private static TextBlock Header(string text) => new()
     {
-        Text = text,
+        Text = TrackUppercase(text),
         FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
-        FontSize = 14, FontWeight = FontWeights.Bold,
-        Foreground = new SolidColorBrush(Color.FromRgb(0xEE, 0xF1, 0xF6)),
+        FontSize = 11, FontWeight = FontWeights.SemiBold,
+        Foreground = new SolidColorBrush(Color.FromArgb(0x80, 0xEE, 0xF1, 0xF6)),
         Margin = new Thickness(0, 0, 0, 8),
     };
 
-    private static UIElement Row(string key, string value, Color chipColor)
+    private static UIElement Row(string key, string? ordinal, string value, Color chipColor)
     {
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 2) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -183,10 +194,16 @@ public partial class DetailPopup : Window
         Grid.SetColumn(chip, 0);
 
         var left = Line(key);
+        left.Foreground = new SolidColorBrush(Color.FromArgb(0xC7, 0xEE, 0xF1, 0xF6));
+        if (ordinal is not null)
+        {
+            left.Inlines.Add(new Run($" - {ordinal}") { Foreground = new SolidColorBrush(Color.FromArgb(0x73, 0xEE, 0xF1, 0xF6)) });
+        }
         Grid.SetColumn(left, 1);
 
         var right = Line(value);
         right.FontWeight = FontWeights.SemiBold;
+        Typography.SetNumeralAlignment(right, FontNumeralAlignment.Tabular);
         Grid.SetColumn(right, 2);
 
         grid.Children.Add(chip);
@@ -201,7 +218,7 @@ public partial class DetailPopup : Window
         {
             Height = 4, CornerRadius = new CornerRadius(2),
             Background = new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF)),
-            Margin = new Thickness(0, 2, 0, 8),
+            Margin = new Thickness(0, 1, 0, 9),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
@@ -219,23 +236,36 @@ public partial class DetailPopup : Window
 
     private static UIElement Footer(DateTimeOffset? sessionResetsAt, DateTimeOffset? weeklyResetsAt)
     {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var border = new Border
+        {
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Margin = new Thickness(0, 10, 0, 0),
+            Padding = new Thickness(0, 9, 0, 0),
+            Child = grid,
+        };
 
         if (sessionResetsAt is { } session)
         {
             var text = Muted($"Session resets {session.ToLocalTime():HH:mm}");
             text.Margin = new Thickness(0);
-            panel.Children.Add(text);
+            Grid.SetColumn(text, 0);
+            grid.Children.Add(text);
         }
 
         if (weeklyResetsAt is { } weekly)
         {
             var text = Muted($"Weekly {weekly.ToLocalTime():ddd HH:mm}");
-            text.Margin = new Thickness(sessionResetsAt is null ? 0 : 12, 0, 0, 0);
-            panel.Children.Add(text);
+            text.Margin = new Thickness(0);
+            Grid.SetColumn(text, 1);
+            grid.Children.Add(text);
         }
 
-        return panel;
+        return border;
     }
 
     private static TextBlock Line(string text) => new()

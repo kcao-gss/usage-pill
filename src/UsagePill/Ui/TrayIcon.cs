@@ -39,7 +39,16 @@ public sealed class TrayIcon : IDisposable
 
     public TrayIcon()
     {
-        _menu = new ContextMenuStrip();
+        _menu = new ContextMenuStrip
+        {
+            Renderer = new DarkMenuRenderer(),
+            ShowImageMargin = false,
+            BackColor = DarkMenuRenderer.Background,
+            ForeColor = DarkMenuRenderer.Text,
+            Font = new Font("Segoe UI", 9f),
+        };
+        _menu.Opening += (_, _) => _menu.Region = new Region(RoundedRectPath(new Rectangle(Point.Empty, _menu.Size), 8));
+
         _menu.Items.Add("Refresh now", null, (_, _) => RefreshRequested?.Invoke(this, EventArgs.Empty));
         _menu.Items.Add("Show or hide pill", null, (_, _) => TogglePillRequested?.Invoke(this, EventArgs.Empty));
         _menu.Items.Add(new ToolStripSeparator());
@@ -132,6 +141,102 @@ public sealed class TrayIcon : IDisposable
 
         var handle = bitmap.GetHicon();
         return (Icon.FromHandle(handle), handle);
+    }
+
+    // Mirrors the mockup's `.tray` panel (section 8): a dark rounded panel with a hairline
+    // light border and a subtle highlight on the hovered item, instead of the OS default light
+    // menu chrome.
+    private static GraphicsPath RoundedRectPath(Rectangle bounds, int radius)
+    {
+        var diameter = radius * 2;
+        var arc = new Rectangle(bounds.Location, new Size(diameter, diameter));
+        var path = new GraphicsPath();
+
+        path.AddArc(arc, 180, 90);
+        arc.X = bounds.Right - diameter;
+        path.AddArc(arc, 270, 90);
+        arc.Y = bounds.Bottom - diameter;
+        path.AddArc(arc, 0, 90);
+        arc.X = bounds.Left;
+        path.AddArc(arc, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    private sealed class DarkMenuColors : ProfessionalColorTable
+    {
+        public override Color ToolStripDropDownBackground => DarkMenuRenderer.Background;
+        public override Color ImageMarginGradientBegin => DarkMenuRenderer.Background;
+        public override Color ImageMarginGradientMiddle => DarkMenuRenderer.Background;
+        public override Color ImageMarginGradientEnd => DarkMenuRenderer.Background;
+        public override Color MenuBorder => DarkMenuRenderer.Border;
+        public override Color MenuItemBorder => DarkMenuRenderer.Highlight;
+        public override Color SeparatorDark => DarkMenuRenderer.Border;
+        public override Color SeparatorLight => DarkMenuRenderer.Border;
+        public override Color MenuItemSelected => DarkMenuRenderer.Highlight;
+        public override Color MenuItemSelectedGradientBegin => DarkMenuRenderer.Highlight;
+        public override Color MenuItemSelectedGradientEnd => DarkMenuRenderer.Highlight;
+        public override Color MenuItemPressedGradientBegin => DarkMenuRenderer.Highlight;
+        public override Color MenuItemPressedGradientEnd => DarkMenuRenderer.Highlight;
+    }
+
+    private sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
+    {
+        // rgba(43,47,56,.96) from the mockup's `.tray` rule, approximated as opaque since a
+        // ContextMenuStrip does not composite against the desktop behind it.
+        public static readonly Color Background = Color.FromArgb(0x2B, 0x2F, 0x38);
+        public static readonly Color Text = Color.FromArgb(0xEE, 0xF1, 0xF6);
+        // rgba(255,255,255,.09) composited over Background - used for both the hairline border
+        // and the hovered-item highlight, matching `.tray` and `.tray div.hi` in the mockup.
+        public static readonly Color Border = Color.FromArgb(0x3E, 0x42, 0x4A);
+        public static readonly Color Highlight = Color.FromArgb(0x3E, 0x42, 0x4A);
+
+        public DarkMenuRenderer() : base(new DarkMenuColors())
+        {
+        }
+
+        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var brush = new SolidBrush(Background);
+            using var path = RoundedRectPath(new Rectangle(Point.Empty, e.ToolStrip.Size), 8);
+            e.Graphics.FillPath(brush, path);
+        }
+
+        // ToolStripProfessionalRenderer's default selection painting defers to the OS's visual
+        // style engine on Windows 10/11, which draws the standard system accent-colour highlight
+        // instead of the colour table's MenuItemSelected value. Painting it directly is the only
+        // way to get the mockup's subtle `rgba(255,255,255,.09)` highlight instead of that blue.
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+        {
+            if (!e.Item.Selected && !e.Item.Pressed) return;
+            using var brush = new SolidBrush(Highlight);
+            e.Graphics.FillRectangle(brush, new Rectangle(Point.Empty, e.Item.Size));
+        }
+
+        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            var rect = new Rectangle(Point.Empty, e.ToolStrip.Size);
+            rect.Width -= 1;
+            rect.Height -= 1;
+            using var pen = new Pen(Border);
+            using var path = RoundedRectPath(rect, 8);
+            e.Graphics.DrawPath(pen, path);
+        }
+
+        protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+        {
+            var y = e.Item.Height / 2;
+            using var pen = new Pen(Border);
+            e.Graphics.DrawLine(pen, 6, y, e.Item.Width - 6, y);
+        }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            e.TextColor = Text;
+            base.OnRenderItemText(e);
+        }
     }
 
     public void Dispose()

@@ -137,6 +137,12 @@ public partial class PillWindow : Window
 
         Opacity = _settings.Opacity;
         Render();
+
+        if (IsLoaded)
+        {
+            UpdateLayout();
+            ConstrainToWorkArea();
+        }
     }
 
     private bool IsRingEnabled(LimitKind kind) => kind switch
@@ -256,23 +262,27 @@ public partial class PillWindow : Window
     private void OnCapsuleRightClick(object sender, MouseButtonEventArgs e)
         => RightClicked?.Invoke(this, EventArgs.Empty);
 
+    private Rect GetWorkArea(double capsuleLeft, double capsuleTop, double capsuleWidth, double capsuleHeight)
+    {
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var centre = new System.Drawing.Point(
+            (int)Math.Round((capsuleLeft + capsuleWidth / 2) * dpi.DpiScaleX),
+            (int)Math.Round((capsuleTop + capsuleHeight / 2) * dpi.DpiScaleY));
+        var bounds = System.Windows.Forms.Screen.FromPoint(centre).WorkingArea;
+        return new Rect(
+            bounds.Left / dpi.DpiScaleX,
+            bounds.Top / dpi.DpiScaleY,
+            bounds.Width / dpi.DpiScaleX,
+            bounds.Height / dpi.DpiScaleY);
+    }
+
     private void SnapToEdges()
     {
         var capsuleLeft = Left + ShadowMargin;
         var capsuleTop = Top + ShadowMargin;
         var capsuleWidth = Capsule.ActualWidth;
         var capsuleHeight = Capsule.ActualHeight;
-
-        var dpi = VisualTreeHelper.GetDpi(this);
-        var centre = new System.Drawing.Point(
-            (int)Math.Round((capsuleLeft + capsuleWidth / 2) * dpi.DpiScaleX),
-            (int)Math.Round((capsuleTop + capsuleHeight / 2) * dpi.DpiScaleY));
-        var bounds = System.Windows.Forms.Screen.FromPoint(centre).WorkingArea;
-        var area = new Rect(
-            bounds.Left / dpi.DpiScaleX,
-            bounds.Top / dpi.DpiScaleY,
-            bounds.Width / dpi.DpiScaleX,
-            bounds.Height / dpi.DpiScaleY);
+        var area = GetWorkArea(capsuleLeft, capsuleTop, capsuleWidth, capsuleHeight);
 
         if (Math.Abs(capsuleLeft - area.Left) <= SnapDistance) capsuleLeft = area.Left;
         if (Math.Abs(area.Right - (capsuleLeft + capsuleWidth)) <= SnapDistance) capsuleLeft = area.Right - capsuleWidth;
@@ -281,5 +291,32 @@ public partial class PillWindow : Window
 
         Left = capsuleLeft - ShadowMargin;
         Top = capsuleTop - ShadowMargin;
+    }
+
+    // Called after a settings-driven Rebuild() has grown or shrunk the capsule. Unlike
+    // SnapToEdges (which only pulls the capsule flush when a drag release lands it within
+    // SnapDistance of an edge), this always keeps the capsule fully inside the work area: a
+    // pill that was flush against an edge before the resize stays flush against it afterwards,
+    // while a pill nowhere near an edge is left at its freely chosen position.
+    private void ConstrainToWorkArea()
+    {
+        var capsuleLeft = Left + ShadowMargin;
+        var capsuleTop = Top + ShadowMargin;
+        var capsuleWidth = Capsule.ActualWidth;
+        var capsuleHeight = Capsule.ActualHeight;
+        var area = GetWorkArea(capsuleLeft, capsuleTop, capsuleWidth, capsuleHeight);
+
+        var minLeft = area.Left;
+        var maxLeft = Math.Max(area.Left, area.Right - capsuleWidth);
+        var minTop = area.Top;
+        var maxTop = Math.Max(area.Top, area.Bottom - capsuleHeight);
+
+        var clampedLeft = Math.Min(Math.Max(capsuleLeft, minLeft), maxLeft);
+        var clampedTop = Math.Min(Math.Max(capsuleTop, minTop), maxTop);
+
+        if (Math.Abs(clampedLeft - capsuleLeft) < 0.5 && Math.Abs(clampedTop - capsuleTop) < 0.5) return;
+
+        Left = clampedLeft - ShadowMargin;
+        Top = clampedTop - ShadowMargin;
     }
 }
