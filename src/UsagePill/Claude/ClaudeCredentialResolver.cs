@@ -13,6 +13,9 @@ namespace UsagePill.Claude;
 /// Steady state costs one file read per poll, because Claude Code refreshes the token in
 /// place. A full scan runs only at startup, when the chosen file stops being readable, and
 /// when <see cref="Invalidate"/> reports that the endpoint rejected the token.
+///
+/// A token the endpoint has rejected ranks below every other readable token, so the next
+/// scan hands over to a second Claude Code instead of choosing the same dead token again.
 /// </summary>
 public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
 {
@@ -21,6 +24,8 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
     private readonly object _gate = new();
 
     private string? _chosenPath;
+    private string? _servedToken;
+    private string? _rejectedToken;
 
     public ClaudeCredentialResolver(Func<IReadOnlyList<string>> candidatePaths)
         : this(candidatePaths, path => new ClaudeCredentialStore(path).Read())
@@ -43,7 +48,7 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
             {
                 try
                 {
-                    return _readPath(path);
+                    return Serve(_readPath(path));
                 }
                 catch (NoCredentialsException)
                 {
@@ -52,13 +57,25 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
                 }
             }
 
-            return Scan();
+            return Serve(Scan());
         }
     }
 
     public void Invalidate()
     {
-        lock (_gate) _chosenPath = null;
+        lock (_gate)
+        {
+            // Remember the token the endpoint rejected, not the file it came from: Claude Code
+            // refreshes in place, so the same path holds a usable token again after a refresh.
+            _rejectedToken = _servedToken;
+            _chosenPath = null;
+        }
+    }
+
+    private ClaudeCredentials Serve(ClaudeCredentials credentials)
+    {
+        _servedToken = credentials.AccessToken;
+        return credentials;
     }
 
     private ClaudeCredentials Scan()
@@ -81,7 +98,7 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
                 continue;
             }
 
-            if (best is null || Expiry(candidate) > Expiry(best))
+            if (best is null || Rank(candidate).CompareTo(Rank(best)) > 0)
             {
                 best = candidate;
                 bestPath = path;
@@ -97,6 +114,10 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
         return best;
     }
 
-    private static DateTimeOffset Expiry(ClaudeCredentials credentials) =>
-        credentials.ExpiresAt ?? DateTimeOffset.MinValue;
+    /// <summary>
+    /// Orders the candidates: a token the endpoint has not rejected beats the rejected one,
+    /// and the latest expiry wins among the rest. A file with no expiry ranks oldest.
+    /// </summary>
+    private (bool NotRejected, DateTimeOffset ExpiresAt) Rank(ClaudeCredentials credentials) =>
+        (credentials.AccessToken != _rejectedToken, credentials.ExpiresAt ?? DateTimeOffset.MinValue);
 }

@@ -79,7 +79,9 @@ It looks in every place you can be signed in on this machine:
   registry, so no `wsl.exe` call is needed. Docker's internal distributions are skipped.
 
 The token with the latest expiry wins, because that file belongs to the Claude Code
-that signed in or refreshed most recently. The pill then keeps reading that one file
+that signed in or refreshed most recently. A token the endpoint has rejected drops to
+the bottom of that order, so another Claude Code on the machine takes over instead of
+the pill sending the same dead token again. The pill then keeps reading that one file
 every poll, which costs one file read and never wakes a stopped distribution. It looks
 at all the locations again only at startup, when the chosen file stops being readable,
 and when the usage endpoint rejects the token.
@@ -88,7 +90,9 @@ If you have not used Claude Code for several hours, the token expires. The usage
 endpoint then rejects the request with 401 or 403, the session ring turns amber and
 shows `!`, and the tooltip and detail card both read "Login expired - start Claude
 Code to refresh". Start Claude Code again, on Windows or in WSL, to refresh the token;
-the pill picks it up on the next poll, no restart needed.
+no restart is needed. After a rejected token the pill retries in 15 seconds and doubles
+that wait up to your poll interval, so the rings usually go live within 15 seconds of
+the refresh.
 
 ## Using it
 

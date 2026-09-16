@@ -115,5 +115,49 @@ public class ClaudeCredentialResolverTests : IDisposable
         Assert.Equal("tok-wsl-fresh", resolver.Read().AccessToken);
     }
 
+    [Fact]
+    public void AfterRejectionPrefersAnotherTokenOverTheRejectedOne()
+    {
+        var windows = WriteCredentials("windows.json", "tok-windows", Noon);
+        var wsl = WriteCredentials("wsl.json", "tok-wsl", Noon.AddHours(3));
+        var resolver = Resolver(windows, wsl);
+
+        Assert.Equal("tok-wsl", resolver.Read().AccessToken);
+
+        // The endpoint rejected the freshest token. The older Windows token is the only other
+        // one on the machine, so it must be tried instead of the dead one.
+        resolver.Invalidate();
+
+        Assert.Equal("tok-windows", resolver.Read().AccessToken);
+    }
+
+    [Fact]
+    public void TheRefreshedTokenInTheRejectedFileWinsAgain()
+    {
+        var windows = WriteCredentials("windows.json", "tok-windows", Noon);
+        var wsl = WriteCredentials("wsl.json", "tok-wsl", Noon.AddHours(3));
+        var resolver = Resolver(windows, wsl);
+
+        Assert.Equal("tok-wsl", resolver.Read().AccessToken);
+        resolver.Invalidate();
+
+        // Rejection follows the token, not the file: Claude Code in WSL refreshed in place.
+        WriteCredentials("wsl.json", "tok-wsl-refreshed", Noon.AddHours(8));
+
+        Assert.Equal("tok-wsl-refreshed", resolver.Read().AccessToken);
+    }
+
+    [Fact]
+    public void KeepsTheRejectedTokenWhenNothingElseIsSignedIn()
+    {
+        var resolver = Resolver(WriteCredentials("windows.json", "tok-windows", Noon));
+
+        Assert.Equal("tok-windows", resolver.Read().AccessToken);
+        resolver.Invalidate();
+
+        // Still signed in, only rejected: the pill must report an expired login, not a missing one.
+        Assert.Equal("tok-windows", resolver.Read().AccessToken);
+    }
+
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 }

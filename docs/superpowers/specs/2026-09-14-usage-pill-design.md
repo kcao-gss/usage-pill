@@ -28,7 +28,8 @@ Headers:
 Token source: the Claude Code credentials file, on Windows at
 `%USERPROFILE%\.claude\.credentials.json` and in each WSL distribution at
 `\\wsl.localhost\<distro>\home\<user>\.claude\.credentials.json` (plus the `root`
-equivalent). The file with the latest `claudeAiOauth.expiresAt` is used. JSON shape:
+equivalent). The file with the latest `claudeAiOauth.expiresAt` is used, except that a
+token the endpoint has rejected ranks below every other readable token. JSON shape:
 
 ```json
 {
@@ -92,7 +93,7 @@ UsagePill.App (WPF)
 │  ├─ WslDistributions      // distribution names from the Lxss registry key
 │  ├─ CredentialSources     // every candidate credentials path, Windows and WSL
 │  ├─ ClaudeCredentialStore // read one credentials file, read-only
-│  ├─ ClaudeCredentialResolver // choose the freshest source, remember it, rescan on failure
+│  ├─ ClaudeCredentialResolver // choose the freshest unrejected source, remember it, rescan on failure
 │  └─ ClaudeUsageProvider   // HTTP call + JSON mapping
 ├─ Polling
 │  └─ UsagePoller           // interval timer, backoff, holds last good snapshot, raises StateChanged
@@ -116,7 +117,9 @@ Rules:
 2. `ClaudeCredentialResolver` re-reads the chosen credentials file on every poll. Claude
    Code refreshes the access token in place, so re-reading picks up the new token for
    free. It scans all Windows and WSL locations again at startup, when that file stops
-   being readable, and when the endpoint rejects the token.
+   being readable, and when the endpoint rejects the token. A rescan after a rejection
+   ranks the rejected token last, so a second Claude Code takes over; the rejection
+   follows the token string, so the same file wins again once it holds a fresh token.
 3. `ClaudeUsageProvider` sends the request and maps the response to a `UsageSnapshot`.
 4. The poller publishes a `UsageState`; `PillWindow` and `DetailPopup` re-render.
 
@@ -190,14 +193,17 @@ mode and below them in vertical mode.
 |---|---|---|---|
 | HTTP 429 | last good values, capsule at 60% opacity, grey dot | "Rate limited, retrying at HH:MM" | Honour `Retry-After`, but never below a 60 second floor; without the header, exponential backoff 5→10→20→40 min, cap 60 min |
 | Network or 5xx error | last good values, capsule at 60% opacity, grey dot | error summary | Exponential backoff 1→2→4→8 min, cap 15 min |
-| Credentials file missing or unparsable | all rings grey and empty, `-` inside | "Claude Code not logged in" | Retry at normal interval |
-| Request returns 401 or 403 | first ring amber and full with `!`, others grey | "Login expired - start Claude Code to refresh" | Retry at normal interval |
+| Credentials file missing or unparsable | all rings grey and empty, `-` inside | "Claude Code not logged in" | Exponential backoff 15→30→60→120→240 s, cap at the poll interval |
+| Request returns 401 or 403 | first ring amber and full with `!`, others grey | "Login expired - start Claude Code to refresh" | Same ladder as above, shared with it |
 | No data yet at startup | all rings grey and empty, `--` inside | "Loading" | - |
 
 The 429 floor exists because the endpoint is known to return `Retry-After: 0`, which
 would otherwise make the poller spin against the service that just rate limited it.
-Auth expiry is driven by the HTTP status alone, not by the local `expiresAt` value,
-which the app does not read.
+Auth expiry is driven by the HTTP status alone, never by the local `expiresAt` value,
+which only ranks the sources against each other. The auth ladder starts at 15 seconds
+because Claude Code refreshes the token in place, usually within a minute of the pill
+seeing it rejected; it never exceeds the poll interval, so a signed-out machine costs
+no more requests than an ordinary poll.
 
 Unhandled exceptions in a poll cycle MUST be caught, logged, and surfaced as the
 error state. A failed poll never terminates the poller.
@@ -235,7 +241,10 @@ Unit tests (xunit, `UsagePill.Tests`):
   per-model `scope.model.display_name` label.
 - A response with an empty `limits[]` falls back to `five_hour` / `seven_day`.
 - Unknown `kind` values and unknown top-level keys do not throw.
-- Backoff: `Retry-After` is honoured; repeated 429 grows the delay and stops at the cap.
+- Backoff: `Retry-After` is honoured; repeated 429 grows the delay and stops at the cap;
+  auth and credential failures climb from 15 s to the poll interval and share one ladder.
+- Credential ranking: latest expiry wins, a rejected token ranks last, a refreshed token
+  in the rejected file wins again, and the only token on the machine is kept even rejected.
 - Colour selection at threshold boundaries, per ring.
 - Ring geometry: thickness, font size, and gap derived from `ringSizePx` at 24, 32, and 48.
 - Settings clamping: out-of-range `ringSizePx`, unknown `orientation`, and

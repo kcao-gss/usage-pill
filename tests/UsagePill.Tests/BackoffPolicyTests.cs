@@ -63,14 +63,18 @@ public class BackoffPolicyTests
     }
 
     [Fact]
-    public void SuccessResetsBothLadders()
+    public void SuccessResetsEveryLadder()
     {
         var policy = Policy();
         policy.NextDelay(new RateLimitedException(null));
         policy.NextDelay(new RateLimitedException(null));
+        policy.NextDelay(new HttpRequestException("boom"));
+        policy.NextDelay(new AuthExpiredException("x"));
 
         Assert.Equal(TimeSpan.FromMinutes(5), policy.NextDelay(null));
         Assert.Equal(TimeSpan.FromMinutes(5), policy.NextDelay(new RateLimitedException(null)));
+        Assert.Equal(TimeSpan.FromMinutes(1), policy.NextDelay(new HttpRequestException("boom")));
+        Assert.Equal(TimeSpan.FromSeconds(15), policy.NextDelay(new AuthExpiredException("x")));
     }
 
     [Fact]
@@ -87,11 +91,18 @@ public class BackoffPolicyTests
     }
 
     [Fact]
-    public void AuthAndCredentialFailuresUseTheNormalInterval()
+    public void AuthAndCredentialFailuresRetrySoonAndClimbToTheNormalInterval()
     {
         var policy = Policy();
+        var delays = new List<TimeSpan>();
 
-        Assert.Equal(TimeSpan.FromMinutes(5), policy.NextDelay(new AuthExpiredException("x")));
-        Assert.Equal(TimeSpan.FromMinutes(5), policy.NextDelay(new NoCredentialsException("x")));
+        // A rejected token and a missing credentials file share one ladder: both mean the pill
+        // has no usable token, and both end the moment Claude Code writes a fresh one.
+        for (var i = 0; i < 3; i++) delays.Add(policy.NextDelay(new AuthExpiredException("x")));
+        for (var i = 0; i < 4; i++) delays.Add(policy.NextDelay(new NoCredentialsException("x")));
+
+        Assert.Equal(
+            new[] { 15, 30, 60, 120, 240, 300, 300 }.Select(s => TimeSpan.FromSeconds(s)).ToArray(),
+            delays.ToArray());
     }
 }
