@@ -66,6 +66,11 @@ Usage Pill reads the access token Claude Code stores in its credentials file and
 `/usage` command. It only reads that file: it never writes to it and never refreshes
 the token itself.
 
+The request identifies itself as `claude-code/<version>`, because the endpoint picks a rate
+limit bucket from that header. A client that does not name itself Claude Code is limited after
+a handful of calls and then stays limited for hours, which would freeze the rings on stale
+numbers.
+
 It looks in every place you can be signed in on this machine:
 
 - `%USERPROFILE%\.claude\.credentials.json`, the Windows login.

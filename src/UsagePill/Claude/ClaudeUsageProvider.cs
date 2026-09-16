@@ -11,6 +11,12 @@ public sealed class ClaudeUsageProvider : IUsageProvider
     public const string UsageUrl = "https://api.anthropic.com/api/oauth/usage";
     private const string BetaHeader = "oauth-2025-04-20";
 
+    // The endpoint picks a rate limit bucket from the User-Agent. A request that does not look
+    // like Claude Code lands in a bucket that 429s after a handful of calls and then stays rate
+    // limited for hours, with no Retry-After to anchor a backoff against. The version is not
+    // validated, so a constant is enough: no process launch, and no woken WSL distribution.
+    private const string UserAgent = "claude-code/2.1.270";
+
     private readonly IClaudeCredentialSource _credentials;
     private readonly HttpClient _http;
     private readonly TimeProvider _clock;
@@ -34,6 +40,7 @@ public sealed class ClaudeUsageProvider : IUsageProvider
         using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
         request.Headers.Add("anthropic-beta", BetaHeader);
+        request.Headers.Add("User-Agent", UserAgent);
 
         using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 

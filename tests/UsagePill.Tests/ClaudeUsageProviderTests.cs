@@ -45,7 +45,7 @@ public class ClaudeUsageProviderTests
         new(source, new HttpClient(handler), clock);
 
     [Fact]
-    public async Task SendsTheBearerTokenAndTheBetaHeader()
+    public async Task SendsTheBearerTokenAndTheClaudeCodeHeaders()
     {
         var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
@@ -60,6 +60,8 @@ public class ClaudeUsageProviderTests
         Assert.Equal("Bearer", handler.LastRequest!.Headers.Authorization!.Scheme);
         Assert.Equal("tok-123", handler.LastRequest!.Headers.Authorization!.Parameter);
         Assert.Equal("oauth-2025-04-20", handler.LastRequest!.Headers.GetValues("anthropic-beta").Single());
+        // Without this the endpoint answers from a bucket that 429s within a few polls.
+        Assert.Equal("claude-code/2.1.270", handler.LastRequest!.Headers.UserAgent.ToString());
         Assert.Equal(90, snapshot.Find(LimitKind.Session)!.Percent);
     }
 
