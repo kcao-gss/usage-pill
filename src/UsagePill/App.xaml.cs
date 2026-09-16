@@ -88,7 +88,7 @@ public partial class App : Application
         _theme.Start();
 
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        _provider = new ClaudeUsageProvider(new ClaudeCredentialStore(ClaudeCredentialStore.DefaultPath()), _http, TimeProvider.System);
+        _provider = new ClaudeUsageProvider(ClaudeCredentialResolver.Default(), _http, TimeProvider.System);
 
         _intervalDebounceTimer = new DispatcherTimer { Interval = IntervalDebounce };
         _intervalDebounceTimer.Tick += (_, _) => ApplyPendingInterval();

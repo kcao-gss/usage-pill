@@ -27,6 +27,7 @@ public class ClaudeCredentialStoreTests : IDisposable
         var credentials = new ClaudeCredentialStore(path).Read();
 
         Assert.Equal("sk-ant-oat01-abc", credentials.AccessToken);
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1789423372964), credentials.ExpiresAt);
     }
 
     [Fact]
@@ -93,9 +94,9 @@ public class ClaudeCredentialStoreTests : IDisposable
     public void ReadsTheAccessTokenWhenExpiresAtIsUnparsablyLarge()
     {
         // A truncated or garbled numeric expiresAt (here, one far outside the range
-        // DateTimeOffset.FromUnixTimeMilliseconds accepts) must not throw ArgumentOutOfRangeException
-        // out of Read(): the field is not consumed by anything, so Read() must not even try to
-        // parse it, and a real access token elsewhere in the file must still come through.
+        // DateTimeOffset.FromUnixTimeMilliseconds accepts) must not throw
+        // ArgumentOutOfRangeException out of Read(): the token is still usable, it only
+        // loses the freshness comparison against the other credential sources.
         var path = WriteFile("""
         { "claudeAiOauth": { "accessToken": "sk-ant-oat01-abc", "expiresAt": 9999999999999999 } }
         """);
@@ -103,25 +104,27 @@ public class ClaudeCredentialStoreTests : IDisposable
         var credentials = new ClaudeCredentialStore(path).Read();
 
         Assert.Equal("sk-ant-oat01-abc", credentials.AccessToken);
+        Assert.Null(credentials.ExpiresAt);
+    }
+
+    [Fact]
+    public void ReportsNoExpiryWhenExpiresAtIsAbsent()
+    {
+        var path = WriteFile("""{ "claudeAiOauth": { "accessToken": "sk-ant-oat01-abc" } }""");
+
+        var credentials = new ClaudeCredentialStore(path).Read();
+
+        Assert.Null(credentials.ExpiresAt);
     }
 
     [Fact]
     public void NeverPrintsTheAccessToken()
     {
-        var credentials = new ClaudeCredentials("sk-ant-oat01-abc");
+        var credentials = new ClaudeCredentials("sk-ant-oat01-abc", DateTimeOffset.UnixEpoch);
 
         var text = credentials.ToString();
 
         Assert.DoesNotContain("sk-ant-oat01-abc", text);
-    }
-
-    [Fact]
-    public void DefaultPathPointsAtTheClaudeCredentialsFile()
-    {
-        var path = ClaudeCredentialStore.DefaultPath();
-
-        Assert.EndsWith(Path.Combine(".claude", ".credentials.json"), path);
-        Assert.True(Path.IsPathRooted(path));
     }
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);

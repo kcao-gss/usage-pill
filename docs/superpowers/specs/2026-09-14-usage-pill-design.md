@@ -25,7 +25,10 @@ Headers:
 - `Authorization: Bearer <claudeAiOauth.accessToken>`
 - `anthropic-beta: oauth-2025-04-20`
 
-Token source: `%USERPROFILE%\.claude\.credentials.json`, JSON shape:
+Token source: the Claude Code credentials file, on Windows at
+`%USERPROFILE%\.claude\.credentials.json` and in each WSL distribution at
+`\\wsl.localhost\<distro>\home\<user>\.claude\.credentials.json` (plus the `root`
+equivalent). The file with the latest `claudeAiOauth.expiresAt` is used. JSON shape:
 
 ```json
 {
@@ -40,7 +43,8 @@ Token source: `%USERPROFILE%\.claude\.credentials.json`, JSON shape:
 }
 ```
 
-Only `claudeAiOauth.accessToken` is read. The other fields are shown for context.
+Only `claudeAiOauth.accessToken` and `claudeAiOauth.expiresAt` are read: the token for
+the request, the expiry to rank the sources. The other fields are shown for context.
 
 Verified live response (2026-09-14, HTTP 200), trimmed to the fields this app uses:
 
@@ -85,7 +89,10 @@ UsagePill.App (WPF)
 │  ├─ UsageLimit            // kind, group, percent, severity, resetsAt?, scopeLabel?, isActive
 │  └─ UsageState            // Ok | Stale | NoCredentials | AuthExpired | Error + last good snapshot
 ├─ Claude
-│  ├─ ClaudeCredentialStore // locate + read credentials file, read-only
+│  ├─ WslDistributions      // distribution names from the Lxss registry key
+│  ├─ CredentialSources     // every candidate credentials path, Windows and WSL
+│  ├─ ClaudeCredentialStore // read one credentials file, read-only
+│  ├─ ClaudeCredentialResolver // choose the freshest source, remember it, rescan on failure
 │  └─ ClaudeUsageProvider   // HTTP call + JSON mapping
 ├─ Polling
 │  └─ UsagePoller           // interval timer, backoff, holds last good snapshot, raises StateChanged
@@ -106,8 +113,10 @@ Rules:
 ## 4. Data flow
 
 1. `UsagePoller` fires (default every 5 minutes, also on demand from the tray).
-2. `ClaudeCredentialStore` re-reads the credentials file on every poll. Claude Code
-   refreshes the access token in place, so re-reading picks up the new token for free.
+2. `ClaudeCredentialResolver` re-reads the chosen credentials file on every poll. Claude
+   Code refreshes the access token in place, so re-reading picks up the new token for
+   free. It scans all Windows and WSL locations again at startup, when that file stops
+   being readable, and when the endpoint rejects the token.
 3. `ClaudeUsageProvider` sends the request and maps the response to a `UsageSnapshot`.
 4. The poller publishes a `UsageState`; `PillWindow` and `DetailPopup` re-render.
 

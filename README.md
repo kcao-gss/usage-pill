@@ -9,6 +9,8 @@ Usage Pill is a small always-on-top Windows pill that shows your Claude subscrip
 usage as three ring gauges. It sits on your desktop, polls the same numbers the
 `/usage` command in Claude Code shows, and stays out of the way otherwise: no
 window chrome, no taskbar entry, click-through avoided but never focus-stealing.
+It picks up your Claude Code login from Windows and from WSL, whichever signed in
+last.
 
 ## Download
 
@@ -22,7 +24,7 @@ Two zips are published for every release:
 
 Unzip anywhere and run `UsagePill.exe`. Checksums for both are in `SHA256SUMS.txt`
 on the release. Requires Windows 10 or 11 on x64, and Claude Code signed in on the
-same machine.
+same machine, on Windows or in WSL.
 
 ## What the rings mean
 
@@ -59,17 +61,29 @@ needs the Windows .NET 8 desktop runtime installed to run.
 
 ## How it gets the data
 
-Usage Pill reads the access token Claude Code stores in
-`%USERPROFILE%\.claude\.credentials.json` and calls
+Usage Pill reads the access token Claude Code stores in its credentials file and calls
 `https://api.anthropic.com/api/oauth/usage`, the same endpoint behind Claude Code's
 `/usage` command. It only reads that file: it never writes to it and never refreshes
 the token itself.
 
+It looks in every place you can be signed in on this machine:
+
+- `%USERPROFILE%\.claude\.credentials.json`, the Windows login.
+- `\\wsl.localhost\<distro>\home\<user>\.claude\.credentials.json` and the `root`
+  equivalent, for each installed WSL distribution. Distribution names come from the
+  registry, so no `wsl.exe` call is needed. Docker's internal distributions are skipped.
+
+The token with the latest expiry wins, because that file belongs to the Claude Code
+that signed in or refreshed most recently. The pill then keeps reading that one file
+every poll, which costs one file read and never wakes a stopped distribution. It looks
+at all the locations again only at startup, when the chosen file stops being readable,
+and when the usage endpoint rejects the token.
+
 If you have not used Claude Code for several hours, the token expires. The usage
 endpoint then rejects the request with 401 or 403, the session ring turns amber and
 shows `!`, and the tooltip and detail card both read "Login expired - start Claude
-Code to refresh". Start Claude Code again to refresh the token; the pill picks it up
-on the next poll, no restart needed.
+Code to refresh". Start Claude Code again, on Windows or in WSL, to refresh the token;
+the pill picks it up on the next poll, no restart needed.
 
 ## Using it
 
@@ -135,7 +149,7 @@ The ring size range and the vertical layout, side by side:
 | What you see | What it means |
 |---|---|
 | All rings grey and empty, `--` inside | No poll has completed yet. Normal for the first few seconds after startup. |
-| All rings grey and empty, `-` inside, tooltip "Claude Code not logged in" | The credentials file is missing or unreadable. Sign in with Claude Code. |
+| All rings grey and empty, `-` inside, tooltip "Claude Code not logged in" | No credentials file on Windows or in any WSL distribution could be read. Sign in with Claude Code. |
 | First ring amber and full with `!`, others grey, tooltip "Login expired - start Claude Code to refresh" | The access token has expired. Start Claude Code to refresh it, then wait for the next poll. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip "Rate limited, retrying at HH:MM" | The usage endpoint returned 429. The poller backs off and retries automatically. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip with an error summary | A network error or a 5xx response. The poller backs off and retries automatically. |

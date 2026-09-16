@@ -5,7 +5,7 @@ using UsagePill.Core;
 namespace UsagePill.Claude;
 
 /// <summary>
-/// Reads the Claude Code credentials file. This type NEVER writes: Claude Code owns
+/// Reads one Claude Code credentials file. This type NEVER writes: Claude Code owns
 /// the file and refreshes the token in place.
 /// </summary>
 public sealed class ClaudeCredentialStore
@@ -13,11 +13,6 @@ public sealed class ClaudeCredentialStore
     private readonly string _path;
 
     public ClaudeCredentialStore(string path) => _path = path;
-
-    public static string DefaultPath() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".claude",
-        ".credentials.json");
 
     public ClaudeCredentials Read()
     {
@@ -43,11 +38,35 @@ public sealed class ClaudeCredentialStore
                 throw new NoCredentialsException("No claudeAiOauth.accessToken in the credentials file.");
             }
 
-            return new ClaudeCredentials(token.GetString()!);
+            return new ClaudeCredentials(token.GetString()!, ReadExpiry(oauth));
         }
         catch (JsonException e)
         {
             throw new NoCredentialsException($"The credentials file is not valid JSON: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// claudeAiOauth.expiresAt is milliseconds since the Unix epoch. A missing, non-numeric
+    /// or out-of-range value yields null rather than throwing: the token itself is still
+    /// usable, it only loses the comparison against a source that reports a real expiry.
+    /// </summary>
+    private static DateTimeOffset? ReadExpiry(JsonElement oauth)
+    {
+        if (!oauth.TryGetProperty("expiresAt", out var expiresAt) ||
+            expiresAt.ValueKind != JsonValueKind.Number ||
+            !expiresAt.TryGetInt64(out var epochMs))
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(epochMs);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
         }
     }
 }

@@ -1,4 +1,3 @@
-using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -8,10 +7,8 @@ using UsagePill.Core;
 
 namespace UsagePill.Tests;
 
-public class ClaudeUsageProviderTests : IDisposable
+public class ClaudeUsageProviderTests
 {
-    private readonly string _dir = Directory.CreateTempSubdirectory("usagepill").FullName;
-
     private sealed class StubHandler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond;
@@ -26,18 +23,26 @@ public class ClaudeUsageProviderTests : IDisposable
         }
     }
 
-    private ClaudeCredentialStore Store()
+    private sealed class StubSource : IClaudeCredentialSource
     {
-        var path = Path.Combine(_dir, ".credentials.json");
-        File.WriteAllText(path, """{ "claudeAiOauth": { "accessToken": "tok-123", "expiresAt": 1789423372964 } }""");
-        return new ClaudeCredentialStore(path);
+        private readonly Func<ClaudeCredentials> _read;
+        public int Invalidations { get; private set; }
+
+        public StubSource(Func<ClaudeCredentials> read) => _read = read;
+
+        public ClaudeCredentials Read() => _read();
+
+        public void Invalidate() => Invalidations++;
     }
 
-    private static ClaudeUsageProvider Provider(ClaudeCredentialStore store, StubHandler handler) =>
-        Provider(store, handler, TimeProvider.System);
+    private static StubSource Source() =>
+        new(() => new ClaudeCredentials("tok-123", DateTimeOffset.UnixEpoch));
 
-    private static ClaudeUsageProvider Provider(ClaudeCredentialStore store, StubHandler handler, TimeProvider clock) =>
-        new(store, new HttpClient(handler), clock);
+    private static ClaudeUsageProvider Provider(IClaudeCredentialSource source, StubHandler handler) =>
+        Provider(source, handler, TimeProvider.System);
+
+    private static ClaudeUsageProvider Provider(IClaudeCredentialSource source, StubHandler handler, TimeProvider clock) =>
+        new(source, new HttpClient(handler), clock);
 
     [Fact]
     public async Task SendsTheBearerTokenAndTheBetaHeader()
@@ -47,7 +52,7 @@ public class ClaudeUsageProviderTests : IDisposable
             Content = new StringContent("""{ "limits": [ { "kind": "session", "percent": 90, "severity": "critical" } ] }"""),
         });
 
-        var snapshot = await Provider(Store(), handler).FetchAsync(CancellationToken.None);
+        var snapshot = await Provider(Source(), handler).FetchAsync(CancellationToken.None);
 
         Assert.Equal(HttpMethod.Get, handler.LastRequest!.Method);
         // Literal, not ClaudeUsageProvider.UsageUrl: a typo in the constant must fail here.
@@ -64,7 +69,35 @@ public class ClaudeUsageProviderTests : IDisposable
         var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
 
         await Assert.ThrowsAsync<AuthExpiredException>(
-            () => Provider(Store(), handler).FetchAsync(CancellationToken.None));
+            () => Provider(Source(), handler).FetchAsync(CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task ARejectedTokenSendsTheSourceLookingAgain(HttpStatusCode status)
+    {
+        // Otherwise a dead Windows token would keep being retried while a signed-in
+        // Claude Code in WSL sits unused.
+        var source = Source();
+        var handler = new StubHandler(_ => new HttpResponseMessage(status));
+
+        await Assert.ThrowsAsync<AuthExpiredException>(
+            () => Provider(source, handler).FetchAsync(CancellationToken.None));
+
+        Assert.Equal(1, source.Invalidations);
+    }
+
+    [Fact]
+    public async Task ARateLimitLeavesTheChosenSourceAlone()
+    {
+        var source = Source();
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+
+        await Assert.ThrowsAsync<RateLimitedException>(
+            () => Provider(source, handler).FetchAsync(CancellationToken.None));
+
+        Assert.Equal(0, source.Invalidations);
     }
 
     [Fact]
@@ -78,7 +111,7 @@ public class ClaudeUsageProviderTests : IDisposable
         });
 
         var error = await Assert.ThrowsAsync<RateLimitedException>(
-            () => Provider(Store(), handler).FetchAsync(CancellationToken.None));
+            () => Provider(Source(), handler).FetchAsync(CancellationToken.None));
 
         Assert.Equal(TimeSpan.FromSeconds(90), error.RetryAfter);
     }
@@ -96,7 +129,7 @@ public class ClaudeUsageProviderTests : IDisposable
         });
 
         var error = await Assert.ThrowsAsync<RateLimitedException>(
-            () => Provider(Store(), handler, clock).FetchAsync(CancellationToken.None));
+            () => Provider(Source(), handler, clock).FetchAsync(CancellationToken.None));
 
         Assert.Equal(TimeSpan.FromMinutes(1), error.RetryAfter);
     }
@@ -107,18 +140,16 @@ public class ClaudeUsageProviderTests : IDisposable
         var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
 
         await Assert.ThrowsAsync<HttpRequestException>(
-            () => Provider(Store(), handler).FetchAsync(CancellationToken.None));
+            () => Provider(Source(), handler).FetchAsync(CancellationToken.None));
     }
 
     [Fact]
     public async Task MissingCredentialsPropagate()
     {
-        var store = new ClaudeCredentialStore(Path.Combine(_dir, "absent.json"));
+        var source = new StubSource(() => throw new NoCredentialsException("nowhere"));
         var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
 
         await Assert.ThrowsAsync<NoCredentialsException>(
-            () => Provider(store, handler).FetchAsync(CancellationToken.None));
+            () => Provider(source, handler).FetchAsync(CancellationToken.None));
     }
-
-    public void Dispose() => Directory.Delete(_dir, recursive: true);
 }

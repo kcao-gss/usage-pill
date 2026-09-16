@@ -11,13 +11,13 @@ public sealed class ClaudeUsageProvider : IUsageProvider
     public const string UsageUrl = "https://api.anthropic.com/api/oauth/usage";
     private const string BetaHeader = "oauth-2025-04-20";
 
-    private readonly ClaudeCredentialStore _store;
+    private readonly IClaudeCredentialSource _credentials;
     private readonly HttpClient _http;
     private readonly TimeProvider _clock;
 
-    public ClaudeUsageProvider(ClaudeCredentialStore store, HttpClient http, TimeProvider clock)
+    public ClaudeUsageProvider(IClaudeCredentialSource credentials, HttpClient http, TimeProvider clock)
     {
-        _store = store;
+        _credentials = credentials;
         _http = http;
         _clock = clock;
     }
@@ -29,7 +29,7 @@ public sealed class ClaudeUsageProvider : IUsageProvider
     public async Task<UsageSnapshot> FetchAsync(CancellationToken ct)
     {
         // Re-read every poll: Claude Code refreshes the token in place.
-        var credentials = _store.Read();
+        var credentials = _credentials.Read();
 
         using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
@@ -41,6 +41,9 @@ public sealed class ClaudeUsageProvider : IUsageProvider
         {
             case HttpStatusCode.Unauthorized:
             case HttpStatusCode.Forbidden:
+                // This token is dead. Let the source look at every location again, so a
+                // second Claude Code, in WSL or on Windows, can take over on the next poll.
+                _credentials.Invalidate();
                 throw new AuthExpiredException("The usage endpoint rejected the access token.");
             case HttpStatusCode.TooManyRequests:
                 throw new RateLimitedException(ReadRetryAfter(response));
