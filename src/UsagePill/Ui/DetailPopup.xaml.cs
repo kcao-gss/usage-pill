@@ -22,6 +22,12 @@ public partial class DetailPopup : Window
         WarnThresholdPercent = warnThresholdPercent;
     }
 
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        TaskSwitcher.Exclude(this);
+    }
+
     /// <summary>
     /// Read fresh on every <see cref="Apply"/> call, so a threshold change made in the settings
     /// window while this popup is open (or merely constructed) is reflected the next time the

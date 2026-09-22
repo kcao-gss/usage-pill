@@ -63,6 +63,7 @@ public partial class PillWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        TaskSwitcher.Exclude(this);
         if (PresentationSource.FromVisual(this) is HwndSource source)
         {
             source.AddHook(ClearMinTrackSize);

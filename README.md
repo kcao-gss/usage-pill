@@ -8,9 +8,9 @@
 Usage Pill is a small always-on-top Windows pill that shows your Claude subscription
 usage as three ring gauges. It sits on your desktop, polls the same numbers the
 `/usage` command in Claude Code shows, and stays out of the way otherwise: no
-window chrome, no taskbar entry, click-through avoided but never focus-stealing.
-It picks up your Claude Code login from Windows and from WSL, whichever signed in
-last.
+window chrome, no taskbar button, no Alt+Tab entry, click-through avoided but
+never focus-stealing. It picks up your Claude Code login from Windows and from
+WSL, whichever signed in last.
 
 ## Download
 
