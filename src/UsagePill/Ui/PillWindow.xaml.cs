@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using UsagePill.Core;
 using UsagePill.Settings;
 
@@ -15,6 +16,7 @@ public partial class PillWindow : Window
     private const double SnapDistance = 16;
     private const double ShadowMargin = 22;
     private const int WM_GETMINMAXINFO = 0x0024;
+    private const int WM_DISPLAYCHANGE = 0x007E;
 
     private readonly ThemeWatcher _theme;
     private readonly List<(LimitKind Kind, RingGauge Gauge)> _gauges = new();
@@ -64,6 +66,7 @@ public partial class PillWindow : Window
         if (PresentationSource.FromVisual(this) is HwndSource source)
         {
             source.AddHook(ClearMinTrackSize);
+            source.AddHook(RecoverFromDisplayChange);
         }
     }
 
@@ -77,6 +80,28 @@ public partial class PillWindow : Window
             handled = true;
         }
         return IntPtr.Zero;
+    }
+
+    // Windows does not reliably move this window when the monitor it sits on is disconnected, so
+    // without this the pill stays at coordinates no display covers and is simply gone. Deferred so
+    // the handler sees the settled monitor layout rather than the one mid-change.
+    private IntPtr RecoverFromDisplayChange(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WM_DISPLAYCHANGE)
+        {
+            Dispatcher.InvokeAsync(RecoverOntoScreen, DispatcherPriority.Background);
+        }
+        return IntPtr.Zero;
+    }
+
+    private void RecoverOntoScreen()
+    {
+        // The move can carry the pill onto a monitor with a different DPI. WPF rescales it during
+        // that move, after the clamp was computed at the old scale, so clamp once more at the new
+        // scale to keep it fully inside the work area.
+        var dpiBefore = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        ConstrainToWorkArea();
+        if (VisualTreeHelper.GetDpi(this).DpiScaleX != dpiBefore) ConstrainToWorkArea();
     }
 
     [StructLayout(LayoutKind.Sequential)]
