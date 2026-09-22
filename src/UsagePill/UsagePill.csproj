@@ -13,7 +13,7 @@
     <Product>Usage Pill</Product>
     <Description>An always-on-top pill showing Claude usage limits as ring gauges.</Description>
     <!-- Overridden by the release workflow with -p:Version from the git tag. -->
-    <Version>0.2.2</Version>
+    <Version>0.2.3</Version>
   </PropertyGroup>
   <ItemGroup>
     <!-- WinForms is enabled only for the tray icon. Its implicit usings shadow the WPF
