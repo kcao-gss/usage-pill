@@ -156,12 +156,9 @@ public partial class PillWindow : Window
         Capsule.Padding = _settings.Orientation == PillOrientation.Horizontal
             ? new Thickness(RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong)
             : new Thickness(RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort, RingGeometry.CapsulePaddingLong, RingGeometry.CapsulePaddingShort);
-        Capsule.Background = new SolidColorBrush(_theme.IsDark
-            ? Color.FromArgb(0xBD, 0x18, 0x1C, 0x24)
-            : Color.FromArgb(0xC7, 0xFA, 0xFA, 0xFC));
-        Capsule.BorderBrush = new SolidColorBrush(_theme.IsDark
-            ? Color.FromArgb(0x17, 0xFF, 0xFF, 0xFF)
-            : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
+        var theme = PillTheme.For(_settings.Background, _theme.IsDark);
+        Capsule.Background = new SolidColorBrush(theme.CapsuleBackground);
+        Capsule.BorderBrush = new SolidColorBrush(theme.CapsuleBorder);
 
         Rings.Orientation = _settings.Orientation == PillOrientation.Horizontal
             ? Orientation.Horizontal
@@ -178,15 +175,9 @@ public partial class PillWindow : Window
             {
                 RingSize = size,
                 FontSizePx = RingGeometry.FontSize(size),
-                TrackBrush = new SolidColorBrush(_theme.IsDark
-                    ? Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)
-                    : Color.FromArgb(0x21, 0x00, 0x00, 0x00)),
-                CoreBrush = new SolidColorBrush(_theme.IsDark
-                    ? Color.FromArgb(0xDB, 0x18, 0x1C, 0x24)
-                    : Color.FromArgb(0xEB, 0xFC, 0xFC, 0xFD)),
-                TextBrush = new SolidColorBrush(_theme.IsDark
-                    ? Color.FromRgb(0xF4, 0xF6, 0xFA)
-                    : Color.FromRgb(0x16, 0x19, 0x1F)),
+                TrackBrush = new SolidColorBrush(theme.RingTrack),
+                CoreBrush = new SolidColorBrush(theme.RingCore),
+                TextBrush = new SolidColorBrush(theme.RingText),
                 Margin = _gauges.Count == 0
                     ? new Thickness(0)
                     : Rings.Orientation == Orientation.Horizontal
@@ -208,9 +199,7 @@ public partial class PillWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Center,
-                Foreground = new SolidColorBrush(_theme.IsDark
-                    ? Color.FromRgb(0xEA, 0xEE, 0xF5)
-                    : Color.FromRgb(0x16, 0x19, 0x1F)),
+                Foreground = new SolidColorBrush(theme.ResetText),
                 Margin = Rings.Orientation == Orientation.Horizontal
                     ? new Thickness(gap, 0, gap, 0)
                     : new Thickness(0, gap, 0, 0),
@@ -270,7 +259,7 @@ public partial class PillWindow : Window
             }
 
             gauge.Percent = limit.Percent;
-            gauge.RingColor = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, _settings.WarnThresholdPercent);
+            gauge.RingColor = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, _settings.WarnThresholdPercent, PillTheme.ParseRingColor(_settings.RingColor));
             gauge.Text = RingGeometry.FormatPercent(limit.Percent);
             SetTextOpacity(gauge, 1.0);
         }

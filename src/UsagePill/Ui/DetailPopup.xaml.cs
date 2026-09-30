@@ -5,6 +5,7 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using UsagePill.Core;
+using UsagePill.Settings;
 
 namespace UsagePill.Ui;
 
@@ -16,10 +17,16 @@ public partial class DetailPopup : Window
     // "- 3rd") that teaches the ring priority order. Indexed to match LimitDisplay.Order.
     private static readonly string[] Ordinals = { "1st", "2nd", "3rd" };
 
-    public DetailPopup(int warnThresholdPercent)
+    private readonly ThemeWatcher _theme;
+    private AppSettings _settings;
+    private Color _ringColor;
+
+    public DetailPopup(AppSettings settings, ThemeWatcher theme)
     {
         InitializeComponent();
-        WarnThresholdPercent = warnThresholdPercent;
+        _theme = theme;
+        _settings = settings;
+        Apply(settings);
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -29,11 +36,15 @@ public partial class DetailPopup : Window
     }
 
     /// <summary>
-    /// Read fresh on every <see cref="Apply"/> call, so a threshold change made in the settings
-    /// window while this popup is open (or merely constructed) is reflected the next time the
-    /// composition root re-renders, without recreating this window.
+    /// Takes effect on the next <see cref="Apply(UsageState, string)"/>, so a threshold, ring
+    /// color or background change made while this popup is open (or merely constructed) shows the
+    /// next time the composition root re-renders, without recreating this window.
     /// </summary>
-    public int WarnThresholdPercent { get; set; }
+    public void Apply(AppSettings settings)
+    {
+        _settings = settings;
+        _ringColor = PillTheme.ParseRingColor(settings.RingColor);
+    }
 
     /// <summary>
     /// Set by <see cref="OnDeactivated"/>. Clicking the pill activates PillWindow first, which
@@ -46,6 +57,10 @@ public partial class DetailPopup : Window
 
     public void Apply(UsageState state, string providerName)
     {
+        var theme = PillTheme.For(_settings.Background, _theme.IsDark);
+        Card.Background = new SolidColorBrush(theme.CardBackground);
+        Card.BorderBrush = new SolidColorBrush(theme.CardBorder);
+
         Body.Children.Clear();
         Body.Children.Add(Header(providerName));
 
@@ -78,7 +93,7 @@ public partial class DetailPopup : Window
             if (limit is null) continue;
 
             var name = LimitDisplay.NameFor(kind, label, limit.ScopeLabel);
-            var color = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, WarnThresholdPercent);
+            var color = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, _settings.WarnThresholdPercent, _ringColor);
             Body.Children.Add(Row(name, Ordinals[i], RingGeometry.FormatPercent(limit.Percent) + "%", color));
             Body.Children.Add(Meter(limit, color));
 

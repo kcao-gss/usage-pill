@@ -34,7 +34,8 @@ is the percentage **used**, not remaining.
 
 Each ring's colour comes from its own value:
 
-- **Green** below the amber threshold (75% by default).
+- **Your ring colour** (green by default, see **Ring color** under Settings) below the
+  amber threshold (75% by default).
 - **Amber** at or above the threshold.
 - **Red** when the API itself reports that limit as critical, regardless of the
   threshold.
@@ -124,7 +125,14 @@ Open Settings from the tray menu ("Settings...") or edit
 - **Vertical layout**: stacks the rings top to bottom instead of side by side.
 - **Show the reset time as text**: adds the session reset time next to (or below)
   the rings.
-- **Opacity**: 30 to 100%, default 92%.
+- **Opacity**: 30 to 100%, default 92%. Applies on top of the background, so set it to
+  100% for a pitch black AMOLED pill.
+- **Background**: System (default) follows the Windows light or dark app theme; Dark
+  and Light pin one; AMOLED makes the pill and the detail card solid black.
+- **Ring color**: Green (default), Blue, Cyan, Violet, Pink or White. It replaces only
+  the normal colour: amber above the threshold and red for a critical limit still win,
+  and the tray icon and the detail card's meters use it too. Any other `#RRGGBB` works
+  as `ringColor` in `settings.json`; an invalid value falls back to green.
 - **Refresh every**: 1 to 60 minutes, default 5.
 - **Amber above**: the warning threshold, 1 to 100%, default 75%.
 - **Start with Windows**: adds or removes a shortcut in your Startup folder. No
@@ -142,6 +150,8 @@ corrupted `settings.json` cannot put the app in a broken state.
   "ringSizePx": 32,
   "orientation": "horizontal",
   "showResetTimeText": false,
+  "background": "system",
+  "ringColor": "#3ECF8E",
   "warnThresholdPercent": 75,
   "opacity": 0.92,
   "window": { "left": 40, "top": 40 },

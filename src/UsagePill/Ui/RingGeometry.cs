@@ -16,7 +16,6 @@ public static class RingGeometry
 
     public static readonly Color Red = Color.FromRgb(0xF2, 0x55, 0x5A);
     public static readonly Color Amber = Color.FromRgb(0xF5, 0xB7, 0x3D);
-    public static readonly Color Green = Color.FromRgb(0x3E, 0xCF, 0x8E);
     public static readonly Color Grey = Color.FromRgb(0x6C, 0x76, 0x84);
 
     public static double Thickness(int ringSizePx) => ringSizePx * ThicknessRatio;
@@ -25,11 +24,12 @@ public static class RingGeometry
 
     public static double Gap(int ringSizePx) => ringSizePx * GapRatio;
 
-    public static Color ColorFor(double percent, Severity apiSeverity, int warnThresholdPercent) => apiSeverity switch
+    /// <summary>Red and amber are fixed so a warning always stands out; <paramref name="normal"/> is the chosen ring color.</summary>
+    public static Color ColorFor(double percent, Severity apiSeverity, int warnThresholdPercent, Color normal) => apiSeverity switch
     {
         Severity.Critical => Red,
         _ when percent >= warnThresholdPercent => Amber,
-        _ => Green,
+        _ => normal,
     };
 
     public static string FormatPercent(double percent) =>

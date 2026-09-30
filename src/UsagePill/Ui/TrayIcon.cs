@@ -3,6 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using UsagePill.Core;
+using UsagePill.Settings;
 
 namespace UsagePill.Ui;
 
@@ -106,13 +107,13 @@ public sealed class TrayIcon : IDisposable
         _icon.ContextMenuStrip!.Show(System.Windows.Forms.Cursor.Position);
     }
 
-    public void Apply(UsageState state, int warnThresholdPercent)
+    public void Apply(UsageState state, AppSettings settings)
     {
         var session = state.Snapshot?.Find(LimitKind.Session);
         var text = session is null ? "-" : RingGeometry.FormatPercent(session.Percent);
         var wpfColor = session is null
             ? RingGeometry.Grey
-            : RingGeometry.ColorFor(session.Percent, session.ApiSeverity, warnThresholdPercent);
+            : RingGeometry.ColorFor(session.Percent, session.ApiSeverity, settings.WarnThresholdPercent, PillTheme.ParseRingColor(settings.RingColor));
 
         _icon.Text = session is null ? "Usage Pill - no data" : $"Claude session {text}%";
 

@@ -153,5 +153,64 @@ public class SettingsTests : IDisposable
         Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
     }
 
+    [Fact]
+    public void TheThemeDefaultsToFollowingWindowsWithGreenRings()
+    {
+        var settings = new AppSettings();
+
+        Assert.Equal(BackgroundTheme.System, settings.Background);
+        Assert.Equal("#3ECF8E", settings.RingColor);
+    }
+
+    [Fact]
+    public void LoadFallsBackOnAnUnusableTheme()
+    {
+        File.WriteAllText(Path_, """{ "background": "neon", "ringColor": "blue" }""");
+
+        var loaded = new SettingsStore(Path_).Load();
+
+        Assert.Equal(BackgroundTheme.System, loaded.Background);
+        Assert.Equal(AppSettings.DefaultRingColor, loaded.RingColor);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("\"\"")]
+    [InlineData("\"#12345\"")]
+    [InlineData("\"#1234567\"")]
+    [InlineData("\"#GG0000\"")]
+    [InlineData("\"4F8EF7\"")]
+    public void LoadRejectsAMalformedRingColor(string value)
+    {
+        File.WriteAllText(Path_, $$"""{ "ringColor": {{value}} }""");
+
+        Assert.Equal(AppSettings.DefaultRingColor, new SettingsStore(Path_).Load().RingColor);
+    }
+
+    [Fact]
+    public void LoadAcceptsAHandWrittenThemeInAnyCase()
+    {
+        File.WriteAllText(Path_, """{ "background": "AMOLED", "ringColor": "#4f8ef7" }""");
+
+        var loaded = new SettingsStore(Path_).Load();
+
+        Assert.Equal(BackgroundTheme.Amoled, loaded.Background);
+        Assert.Equal("#4F8EF7", loaded.RingColor);
+    }
+
+    [Fact]
+    public void TheThemeRoundTripsThroughDisk()
+    {
+        var store = new SettingsStore(Path_);
+        store.Save(new AppSettings { Background = BackgroundTheme.Amoled, RingColor = "#4F8EF7" });
+
+        var json = File.ReadAllText(Path_);
+        var loaded = store.Load();
+
+        Assert.Contains("\"background\": \"amoled\"", json);
+        Assert.Equal(BackgroundTheme.Amoled, loaded.Background);
+        Assert.Equal("#4F8EF7", loaded.RingColor);
+    }
+
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 }

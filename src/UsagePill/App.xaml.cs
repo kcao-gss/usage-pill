@@ -104,7 +104,7 @@ public partial class App : Application
         _poller = CreatePoller(_activePollIntervalMinutes);
 
         _pill = new PillWindow(_settings, _theme);
-        _detail = new DetailPopup(_settings.WarnThresholdPercent);
+        _detail = new DetailPopup(_settings, _theme);
         _tray = new TrayIcon();
         _tray.StartWithWindowsChecked = startupEnabled;
 
@@ -133,7 +133,7 @@ public partial class App : Application
     {
         _pill.Apply(state);
         _detail.Apply(state, _provider.DisplayName);
-        _tray.Apply(state, _settings.WarnThresholdPercent);
+        _tray.Apply(state, _settings);
     }
 
     private void ToggleDetail(DateTime pressedAt)
@@ -172,7 +172,7 @@ public partial class App : Application
             var startupChanged = updated.StartWithWindows != _settings.StartWithWindows;
             _settings = updated;
             _pill.Apply(updated);
-            _detail.WarnThresholdPercent = updated.WarnThresholdPercent;
+            _detail.Apply(updated);
             Render(_poller.State);
 
             if (startupChanged) ReconcileStartWithWindows(updated.StartWithWindows);

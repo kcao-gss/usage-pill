@@ -5,6 +5,34 @@
         ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
         Background="#FF202430" Foreground="#FFEEF1F6"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12">
+    <Window.Resources>
+        <!-- A ring color choice: a filled dot, outlined once it is the selected color. -->
+        <Style x:Key="Swatch" TargetType="RadioButton">
+            <Setter Property="Width" Value="24" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="GroupName" Value="RingColor" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Background="Transparent">
+                            <Ellipse x:Name="Outline" Stroke="Transparent" StrokeThickness="2" />
+                            <Ellipse Margin="5" Fill="{TemplateBinding Background}" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Outline" Property="Stroke" Value="#59EEF1F6" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Outline" Property="Stroke" Value="#FFEEF1F6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <StackPanel Margin="16">
         <TextBlock Text="RINGS" Opacity="0.5" FontWeight="SemiBold" Margin="0,0,0,6" />
         <CheckBox x:Name="RingSession" Content="Session (5 hours)" Margin="0,3" Foreground="#FFEEF1F6" IsChecked="True" IsEnabled="False" />
@@ -24,6 +52,17 @@
             <TextBlock Text="Opacity" />
         </DockPanel>
         <Slider x:Name="OpacitySlider" Minimum="30" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" />
+
+        <TextBlock Text="THEME" Opacity="0.5" FontWeight="SemiBold" Margin="0,14,0,6" />
+        <TextBlock Text="Background" Margin="0,3" />
+        <UniformGrid Columns="4" Margin="0,3,0,3">
+            <RadioButton x:Name="BackgroundSystem" Content="System" GroupName="Background" Foreground="#FFEEF1F6" />
+            <RadioButton x:Name="BackgroundDark" Content="Dark" GroupName="Background" Foreground="#FFEEF1F6" />
+            <RadioButton x:Name="BackgroundLight" Content="Light" GroupName="Background" Foreground="#FFEEF1F6" />
+            <RadioButton x:Name="BackgroundAmoled" Content="AMOLED" GroupName="Background" Foreground="#FFEEF1F6" />
+        </UniformGrid>
+        <TextBlock Text="Ring color" Margin="0,8,0,3" />
+        <StackPanel x:Name="RingColors" Orientation="Horizontal" Margin="0,3,0,0" />
 
         <TextBlock Text="DATA" Opacity="0.5" FontWeight="SemiBold" Margin="0,14,0,6" />
         <DockPanel Margin="0,3">

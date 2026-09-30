@@ -17,32 +17,33 @@ public class RingGeometryTests
         Assert.Equal(gap, RingGeometry.Gap(size), 3);
     }
 
+    private static readonly Color Blue = Color.FromRgb(0x4F, 0x8E, 0xF7);
+
     [Fact]
-    public void TheRingColoursAreTheOnesTheSpecNames()
+    public void TheStateColoursAreTheOnesTheSpecNames()
     {
         Assert.Equal(Color.FromRgb(0xF2, 0x55, 0x5A), RingGeometry.Red);
         Assert.Equal(Color.FromRgb(0xF5, 0xB7, 0x3D), RingGeometry.Amber);
-        Assert.Equal(Color.FromRgb(0x3E, 0xCF, 0x8E), RingGeometry.Green);
         Assert.Equal(Color.FromRgb(0x6C, 0x76, 0x84), RingGeometry.Grey);
     }
 
     [Fact]
     public void CriticalFromTheApiIsAlwaysRed()
     {
-        Assert.Equal(RingGeometry.Red, RingGeometry.ColorFor(2, Severity.Critical, 75));
+        Assert.Equal(RingGeometry.Red, RingGeometry.ColorFor(2, Severity.Critical, 75, Blue));
     }
 
     [Fact]
-    public void AtOrAboveTheThresholdIsAmber()
+    public void AtOrAboveTheThresholdIsAmberWhateverTheRingColor()
     {
-        Assert.Equal(RingGeometry.Amber, RingGeometry.ColorFor(75, Severity.Normal, 75));
-        Assert.Equal(RingGeometry.Amber, RingGeometry.ColorFor(99, Severity.Normal, 75));
+        Assert.Equal(RingGeometry.Amber, RingGeometry.ColorFor(75, Severity.Normal, 75, Blue));
+        Assert.Equal(RingGeometry.Amber, RingGeometry.ColorFor(99, Severity.Normal, 75, Blue));
     }
 
     [Fact]
-    public void BelowTheThresholdIsGreen()
+    public void BelowTheThresholdIsTheChosenRingColor()
     {
-        Assert.Equal(RingGeometry.Green, RingGeometry.ColorFor(74.9, Severity.Normal, 75));
+        Assert.Equal(Blue, RingGeometry.ColorFor(74.9, Severity.Normal, 75, Blue));
     }
 
     [Fact]

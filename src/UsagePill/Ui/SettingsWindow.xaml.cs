@@ -1,5 +1,8 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Media;
 using UsagePill.Settings;
 
 namespace UsagePill.Ui;
@@ -8,6 +11,7 @@ public partial class SettingsWindow : Window
 {
     private AppSettings _current;
     private bool _loading = true;
+    private readonly List<(RadioButton Swatch, string Hex)> _swatches = new();
 
     public SettingsWindow(AppSettings current)
     {
@@ -23,6 +27,8 @@ public partial class SettingsWindow : Window
         Interval.Value = current.PollIntervalMinutes;
         Threshold.Value = current.WarnThresholdPercent;
         StartWithWindows.IsChecked = current.StartWithWindows;
+        BackgroundRadio(current.Background).IsChecked = true;
+        BuildSwatches(current.RingColor);
 
         _loading = false;
         Hook();
@@ -60,6 +66,41 @@ public partial class SettingsWindow : Window
         OpacitySlider.ValueChanged += (_, _) => Publish();
         Interval.ValueChanged += (_, _) => Publish();
         Threshold.ValueChanged += (_, _) => Publish();
+        foreach (var background in Enum.GetValues<BackgroundTheme>())
+        {
+            BackgroundRadio(background).Checked += (_, _) => Publish();
+        }
+        foreach (var (swatch, _) in _swatches)
+        {
+            swatch.Checked += (_, _) => Publish();
+        }
+    }
+
+    private RadioButton BackgroundRadio(BackgroundTheme background) => background switch
+    {
+        BackgroundTheme.Dark => BackgroundDark,
+        BackgroundTheme.Light => BackgroundLight,
+        BackgroundTheme.Amoled => BackgroundAmoled,
+        _ => BackgroundSystem,
+    };
+
+    private void BuildSwatches(string current)
+    {
+        var style = (Style)FindResource("Swatch");
+        foreach (var (name, hex) in PillTheme.RingSwatches)
+        {
+            var swatch = new RadioButton
+            {
+                Style = style,
+                Background = new SolidColorBrush(PillTheme.ParseRingColor(hex)),
+                ToolTip = name,
+                // A hand-written color from settings.json matches no swatch, so none is checked.
+                IsChecked = hex == current,
+            };
+            AutomationProperties.SetName(swatch, name + " rings");
+            RingColors.Children.Add(swatch);
+            _swatches.Add((swatch, hex));
+        }
     }
 
     private void Publish()
@@ -81,6 +122,8 @@ public partial class SettingsWindow : Window
             PollIntervalMinutes = (int)Interval.Value,
             WarnThresholdPercent = (int)Threshold.Value,
             StartWithWindows = StartWithWindows.IsChecked == true,
+            Background = Enum.GetValues<BackgroundTheme>().First(b => BackgroundRadio(b).IsChecked == true),
+            RingColor = _swatches.FirstOrDefault(s => s.Swatch.IsChecked == true).Hex ?? _current.RingColor,
         };
 
         UpdateLabels();

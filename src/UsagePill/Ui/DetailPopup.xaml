@@ -5,7 +5,7 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         SizeToContent="WidthAndHeight" Deactivated="OnDeactivated">
-    <Border Background="#F0202430" CornerRadius="10" BorderBrush="#17FFFFFF" BorderThickness="1" Padding="13,12">
+    <Border x:Name="Card" CornerRadius="10" BorderThickness="1" Padding="13,12">
         <StackPanel x:Name="Body" Width="246" />
     </Border>
 </Window>
