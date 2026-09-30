@@ -6,39 +6,44 @@ namespace UsagePill.Claude;
 /// Chooses one credentials file out of all the places Claude Code can be signed in,
 /// Windows and WSL alike, and keeps using it until it stops working.
 ///
-/// The freshest token wins: the file whose claudeAiOauth.expiresAt is latest belongs to
-/// the Claude Code that signed in or refreshed most recently. A file with no expiry ranks
-/// oldest, so it is only used when nothing better exists.
+/// The freshest live token wins: the file whose claudeAiOauth.expiresAt is latest belongs to
+/// the Claude Code that signed in or refreshed most recently. A file with no expiry counts as
+/// live but ranks oldest among the live ones, so it is only used when nothing better exists.
 ///
 /// Steady state costs one file read per poll, because Claude Code refreshes the token in
-/// place. A full scan runs only at startup, when the chosen file stops being readable, and
-/// when <see cref="Invalidate"/> reports that the endpoint rejected the token.
+/// place. A full scan runs only at startup, when the chosen file stops being readable, when
+/// its token is past its own expiry, and when <see cref="Invalidate"/> reports that the
+/// endpoint rejected the token.
 ///
-/// A token the endpoint has rejected ranks below every other readable token, so the next
-/// scan hands over to a second Claude Code instead of choosing the same dead token again.
+/// A token that is past its expiry or that the endpoint has rejected ranks below every live
+/// token, so the next scan hands over to a second Claude Code instead of choosing a dead token
+/// again. The expiry check cannot wait for a rejection: the usage endpoint can answer an
+/// expired token with 429 instead of 401, and a 429 alone would pin the pill to that file.
 /// </summary>
 public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
 {
     private readonly Func<IReadOnlyList<string>> _candidatePaths;
     private readonly Func<string, ClaudeCredentials> _readPath;
     private readonly object _gate = new();
+    private readonly TimeProvider _clock;
 
     private string? _chosenPath;
     private string? _servedToken;
     private string? _rejectedToken;
 
-    public ClaudeCredentialResolver(Func<IReadOnlyList<string>> candidatePaths)
-        : this(candidatePaths, path => new ClaudeCredentialStore(path).Read())
+    public ClaudeCredentialResolver(Func<IReadOnlyList<string>> candidatePaths, TimeProvider clock)
+        : this(candidatePaths, path => new ClaudeCredentialStore(path).Read(), clock)
     {
     }
 
-    public ClaudeCredentialResolver(Func<IReadOnlyList<string>> candidatePaths, Func<string, ClaudeCredentials> readPath)
+    public ClaudeCredentialResolver(Func<IReadOnlyList<string>> candidatePaths, Func<string, ClaudeCredentials> readPath, TimeProvider clock)
     {
         _candidatePaths = candidatePaths;
         _readPath = readPath;
+        _clock = clock;
     }
 
-    public static ClaudeCredentialResolver Default() => new(CredentialSources.All);
+    public static ClaudeCredentialResolver Default() => new(CredentialSources.All, TimeProvider.System);
 
     public ClaudeCredentials Read()
     {
@@ -48,7 +53,11 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
             {
                 try
                 {
-                    return Serve(_readPath(path));
+                    var credentials = _readPath(path);
+                    if (!IsExpired(credentials)) return Serve(credentials);
+
+                    // Claude Code there stopped refreshing. Another one may be live.
+                    _chosenPath = null;
                 }
                 catch (NoCredentialsException)
                 {
@@ -115,9 +124,14 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
     }
 
     /// <summary>
-    /// Orders the candidates: a token the endpoint has not rejected beats the rejected one,
-    /// and the latest expiry wins among the rest. A file with no expiry ranks oldest.
+    /// Orders the candidates: a live token, one neither past its expiry nor rejected by the
+    /// endpoint, beats every dead one, and the latest expiry wins among equals. A file with no
+    /// expiry counts as live and ranks oldest among the live ones.
     /// </summary>
-    private (bool NotRejected, DateTimeOffset ExpiresAt) Rank(ClaudeCredentials credentials) =>
-        (credentials.AccessToken != _rejectedToken, credentials.ExpiresAt ?? DateTimeOffset.MinValue);
+    private (bool Live, DateTimeOffset ExpiresAt) Rank(ClaudeCredentials credentials) =>
+        (credentials.AccessToken != _rejectedToken && !IsExpired(credentials),
+         credentials.ExpiresAt ?? DateTimeOffset.MinValue);
+
+    private bool IsExpired(ClaudeCredentials credentials) =>
+        credentials.ExpiresAt is { } expiresAt && expiresAt <= _clock.GetUtcNow();
 }

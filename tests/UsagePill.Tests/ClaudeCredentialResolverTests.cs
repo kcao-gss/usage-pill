@@ -1,4 +1,5 @@
 using System.IO;
+using Microsoft.Extensions.Time.Testing;
 using UsagePill.Claude;
 using UsagePill.Core;
 
@@ -24,11 +25,14 @@ public class ClaudeCredentialResolverTests : IDisposable
         return path;
     }
 
-    private static ClaudeCredentialResolver Resolver(Func<IReadOnlyList<string>> candidates) => new(candidates);
-
-    private static ClaudeCredentialResolver Resolver(params string[] candidates) => new(() => candidates);
-
     private static readonly DateTimeOffset Noon = new(2026, 9, 16, 12, 0, 0, TimeSpan.Zero);
+
+    /// <summary>Starts an hour before Noon, so a token that expires at Noon is still live.</summary>
+    private readonly FakeTimeProvider _clock = new(Noon.AddHours(-1));
+
+    private ClaudeCredentialResolver Resolver(Func<IReadOnlyList<string>> candidates) => new(candidates, _clock);
+
+    private ClaudeCredentialResolver Resolver(params string[] candidates) => new(() => candidates, _clock);
 
     [Fact]
     public void UsesTheTokenWithTheLatestExpiry()
@@ -157,6 +161,52 @@ public class ClaudeCredentialResolverTests : IDisposable
 
         // Still signed in, only rejected: the pill must report an expired login, not a missing one.
         Assert.Equal("tok-windows", resolver.Read().AccessToken);
+    }
+
+    [Fact]
+    public void PrefersAnUndatedTokenOverAnExpiredOne()
+    {
+        var expired = WriteCredentials("expired.json", "tok-expired", Noon.AddHours(-2));
+        var undated = WriteCredentials("undated.json", "tok-undated", null);
+
+        Assert.Equal("tok-undated", Resolver(expired, undated).Read().AccessToken);
+    }
+
+    [Fact]
+    public void RescansWhenTheChosenTokenHasExpired()
+    {
+        var windows = WriteCredentials("windows.json", "tok-windows", Noon);
+        var wsl = WriteCredentials("wsl.json", "tok-wsl-old", Noon.AddHours(-2));
+        var resolver = Resolver(windows, wsl);
+
+        Assert.Equal("tok-windows", resolver.Read().AccessToken);
+
+        // Claude Code on Windows went idle and its token ran out, while Claude Code in WSL
+        // signed in. No request was rejected, so only the expiry says the token is dead.
+        WriteCredentials("wsl.json", "tok-wsl", Noon.AddHours(9));
+        _clock.SetUtcNow(Noon.AddMinutes(1));
+
+        Assert.Equal("tok-wsl", resolver.Read().AccessToken);
+    }
+
+    [Fact]
+    public void LeavesAnExpiredFallbackOnceTheRejectedSourceRefreshes()
+    {
+        // A file whose token expired long ago, the way a WSL Claude Code that stopped
+        // refreshing leaves it. The endpoint answers that token with 429, never 401, so the
+        // pill cannot count on a rejection to move it off this file.
+        var windows = WriteCredentials("windows.json", "tok-windows", Noon);
+        var wsl = WriteCredentials("wsl.json", "tok-wsl-dead", DateTimeOffset.UnixEpoch);
+        var resolver = Resolver(windows, wsl);
+
+        Assert.Equal("tok-windows", resolver.Read().AccessToken);
+        resolver.Invalidate();
+        resolver.Read();
+
+        // Claude Code on Windows refreshes in place.
+        WriteCredentials("windows.json", "tok-windows-refreshed", Noon.AddHours(8));
+
+        Assert.Equal("tok-windows-refreshed", resolver.Read().AccessToken);
     }
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
