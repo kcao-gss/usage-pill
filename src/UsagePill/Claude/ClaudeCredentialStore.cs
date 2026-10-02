@@ -38,12 +38,39 @@ public sealed class ClaudeCredentialStore
                 throw new NoCredentialsException("No claudeAiOauth.accessToken in the credentials file.");
             }
 
-            return new ClaudeCredentials(token.GetString()!, ReadExpiry(oauth));
+            var accessToken = token.GetString()!;
+            if (string.IsNullOrWhiteSpace(accessToken))
+            {
+                // The endpoint rejects a blank token outright, so it must not compete with real
+                // ones: an undated blank token would otherwise outrank an expired real token.
+                throw new NoCredentialsException("The claudeAiOauth.accessToken in the credentials file is empty.");
+            }
+
+            return new ClaudeCredentials(accessToken, ReadExpiry(oauth), ReadHasProfileScope(oauth));
         }
         catch (JsonException e)
         {
             throw new NoCredentialsException($"The credentials file is not valid JSON: {e.Message}");
         }
+    }
+
+    /// <summary>
+    /// The usage endpoint requires the user:profile scope. Only a scopes array that lacks it
+    /// counts as missing: a file without one leaves the decision to the endpoint.
+    /// </summary>
+    private static bool ReadHasProfileScope(JsonElement oauth)
+    {
+        if (!oauth.TryGetProperty("scopes", out var scopes) || scopes.ValueKind != JsonValueKind.Array)
+        {
+            return true;
+        }
+
+        foreach (var scope in scopes.EnumerateArray())
+        {
+            if (scope.ValueKind == JsonValueKind.String && scope.ValueEquals(ClaudeCredentials.ProfileScope)) return true;
+        }
+
+        return false;
     }
 
     /// <summary>

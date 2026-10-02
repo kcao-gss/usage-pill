@@ -137,6 +137,18 @@ public class UsagePollerTests
     }
 
     [Fact]
+    public async Task AMissingScopePublishesItsOwnStatus()
+    {
+        // Distinct from AuthExpired: restarting Claude Code does not fix it, signing in again does.
+        var (poller, provider, _) = Build();
+        provider.EnqueueFailure(new MissingScopeException("nope"));
+
+        await poller.RefreshNowAsync();
+
+        Assert.Equal(UsageStatus.MissingScope, poller.State.Status);
+    }
+
+    [Fact]
     public async Task EveryPublishRaisesStateChanged()
     {
         var (poller, provider, _) = Build();

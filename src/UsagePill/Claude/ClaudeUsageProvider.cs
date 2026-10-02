@@ -37,6 +37,14 @@ public sealed class ClaudeUsageProvider : IUsageProvider
         // Re-read every poll: Claude Code refreshes the token in place.
         var credentials = _credentials.Read();
 
+        if (!credentials.HasProfileScope)
+        {
+            // The endpoint would refuse it, so spare a request against a rate limited endpoint.
+            // Invalidate anyway: a properly signed-in Claude Code elsewhere should take over.
+            _credentials.Invalidate();
+            throw new MissingScopeException("The access token lacks the user:profile scope.");
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
         request.Headers.Add("anthropic-beta", BetaHeader);
@@ -51,6 +59,15 @@ public sealed class ClaudeUsageProvider : IUsageProvider
                 // This token is dead. Let the source look at every location again, so a
                 // second Claude Code, in WSL or on Windows, can take over on the next poll.
                 _credentials.Invalidate();
+
+                // A file without a scopes list still reaches the endpoint, which names the
+                // missing scope in its 403 body. Restarting Claude Code would not fix that.
+                if (response.StatusCode == HttpStatusCode.Forbidden &&
+                    (await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).Contains(ClaudeCredentials.ProfileScope, StringComparison.Ordinal))
+                {
+                    throw new MissingScopeException("The usage endpoint refused a token without the user:profile scope.");
+                }
+
                 throw new AuthExpiredException("The usage endpoint rejected the access token.");
             case HttpStatusCode.TooManyRequests:
                 throw new RateLimitedException(ReadRetryAfter(response));

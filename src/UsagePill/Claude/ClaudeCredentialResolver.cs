@@ -13,12 +13,15 @@ namespace UsagePill.Claude;
 /// Steady state costs one file read per poll, because Claude Code refreshes the token in
 /// place. A full scan runs only at startup, when the chosen file stops being readable, when
 /// its token is past its own expiry, and when <see cref="Invalidate"/> reports that the
-/// endpoint rejected the token.
+/// endpoint rejected the token or that it lacks the user:profile scope.
 ///
 /// A token that is past its expiry or that the endpoint has rejected ranks below every live
 /// token, so the next scan hands over to a second Claude Code instead of choosing a dead token
 /// again. The expiry check cannot wait for a rejection: the usage endpoint can answer an
 /// expired token with 429 instead of 401, and a 429 alone would pin the pill to that file.
+///
+/// A token without the user:profile scope ranks below even a dead one: Claude Code refreshes a
+/// dead token in place, but no refresh ever adds the scope the usage endpoint requires.
 /// </summary>
 public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
 {
@@ -124,12 +127,14 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
     }
 
     /// <summary>
-    /// Orders the candidates: a live token, one neither past its expiry nor rejected by the
-    /// endpoint, beats every dead one, and the latest expiry wins among equals. A file with no
-    /// expiry counts as live and ranks oldest among the live ones.
+    /// Orders the candidates: a token carrying the profile scope beats every one without it.
+    /// Among those, a live token, one neither past its expiry nor rejected by the endpoint,
+    /// beats every dead one, and the latest expiry wins among equals. A file with no expiry
+    /// counts as live and ranks oldest among the live ones.
     /// </summary>
-    private (bool Live, DateTimeOffset ExpiresAt) Rank(ClaudeCredentials credentials) =>
-        (credentials.AccessToken != _rejectedToken && !IsExpired(credentials),
+    private (bool HasProfileScope, bool Live, DateTimeOffset ExpiresAt) Rank(ClaudeCredentials credentials) =>
+        (credentials.HasProfileScope,
+         credentials.AccessToken != _rejectedToken && !IsExpired(credentials),
          credentials.ExpiresAt ?? DateTimeOffset.MinValue);
 
     private bool IsExpired(ClaudeCredentials credentials) =>

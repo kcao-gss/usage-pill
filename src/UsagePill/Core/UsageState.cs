@@ -1,6 +1,6 @@
 namespace UsagePill.Core;
 
-public enum UsageStatus { Loading, Ok, Stale, NoCredentials, AuthExpired }
+public enum UsageStatus { Loading, Ok, Stale, NoCredentials, AuthExpired, MissingScope }
 
 /// <summary>What the UI renders. Snapshot is the last good data, even when stale.</summary>
 public sealed record UsageState(

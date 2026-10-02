@@ -76,6 +76,12 @@ public partial class DetailPopup : Window
             return;
         }
 
+        if (state.Status == UsageStatus.MissingScope)
+        {
+            Body.Children.Add(Line(LimitDisplay.MissingScopeMessage));
+            return;
+        }
+
         if (state.Status == UsageStatus.Loading || state.Snapshot is null)
         {
             Body.Children.Add(Line("Loading"));
@@ -289,9 +295,13 @@ public partial class DetailPopup : Window
         return border;
     }
 
+    // Wraps instead of clipping at the card's fixed width: status copy, error summaries and an
+    // API-supplied row label can run longer than one line. Row values sit in Auto columns, which
+    // measure unconstrained, so a value never wraps; labels in Star columns wrap rather than clip.
     private static TextBlock Line(string text) => new()
     {
         Text = text,
+        TextWrapping = TextWrapping.Wrap,
         FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
         FontSize = 12,
         Foreground = new SolidColorBrush(Color.FromRgb(0xEE, 0xF1, 0xF6)),

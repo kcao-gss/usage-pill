@@ -240,7 +240,7 @@ public partial class PillWindow : Window
 
             gauge.ShowStaleDot = stale && i == 0;
 
-            if (_state.Status == UsageStatus.AuthExpired && i == 0)
+            if (_state.Status is UsageStatus.AuthExpired or UsageStatus.MissingScope && i == 0)
             {
                 gauge.Percent = 100;
                 gauge.RingColor = RingGeometry.Amber;
@@ -283,6 +283,7 @@ public partial class PillWindow : Window
     {
         if (_state.Status == UsageStatus.NoCredentials) return LimitDisplay.NoCredentialsMessage;
         if (_state.Status == UsageStatus.AuthExpired) return LimitDisplay.AuthExpiredMessage;
+        if (_state.Status == UsageStatus.MissingScope) return LimitDisplay.MissingScopeMessage;
         if (_state.Status == UsageStatus.Loading) return "Loading";
 
         var snapshot = _state.Snapshot;

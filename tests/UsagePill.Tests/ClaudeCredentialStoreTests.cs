@@ -90,6 +90,29 @@ public class ClaudeCredentialStoreTests : IDisposable
         Assert.Throws<NoCredentialsException>(() => store.Read());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ThrowsNoCredentialsWhenTheAccessTokenIsBlank(string token)
+    {
+        var store = new ClaudeCredentialStore(WriteFile($$"""{ "claudeAiOauth": { "accessToken": "{{token}}" } }"""));
+
+        Assert.Throws<NoCredentialsException>(() => store.Read());
+    }
+
+    [Theory]
+    [InlineData("""["user:inference", "user:profile"]""", true)]
+    [InlineData("""["user:inference"]""", false)]
+    [InlineData("""[]""", false)]
+    [InlineData(null, true)]
+    public void ReportsWhetherTheTokenCarriesTheProfileScope(string? scopes, bool expected)
+    {
+        var scopesProperty = scopes is null ? "" : $""" , "scopes": {scopes} """;
+        var path = WriteFile($$"""{ "claudeAiOauth": { "accessToken": "sk-ant-oat01-abc"{{scopesProperty}} } }""");
+
+        Assert.Equal(expected, new ClaudeCredentialStore(path).Read().HasProfileScope);
+    }
+
     [Fact]
     public void ReadsTheAccessTokenWhenExpiresAtIsUnparsablyLarge()
     {

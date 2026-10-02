@@ -173,6 +173,34 @@ public class ClaudeCredentialResolverTests : IDisposable
     }
 
     [Fact]
+    public void PrefersAnExpiredTokenOverABlankOne()
+    {
+        // A WSL install holding an empty token and no expiry must not take over once the
+        // Windows token expires: the endpoint rejects a blank token outright, while Claude Code
+        // refreshes the expired one in place.
+        var expired = WriteCredentials("windows.json", "tok-windows", Noon.AddHours(-2));
+        var blank = WriteCredentials("wsl.json", "", null);
+
+        Assert.Equal("tok-windows", Resolver(expired, blank).Read().AccessToken);
+        Assert.Equal("tok-windows", Resolver(blank, expired).Read().AccessToken);
+    }
+
+    [Fact]
+    public void PrefersAnExpiredTokenOverALiveOneWithoutTheProfileScope()
+    {
+        // Claude Code refreshes the expired token in place; no refresh ever gives the other one
+        // the scope the usage endpoint requires.
+        var expired = WriteCredentials("expired.json", "tok-expired", Noon.AddHours(-2));
+        var unscoped = WriteRaw("unscoped.json", $$"""
+            { "claudeAiOauth": { "accessToken": "tok-unscoped", "expiresAt": {{Noon.ToUnixTimeMilliseconds()}},
+              "scopes": ["user:inference"] } }
+            """);
+
+        Assert.Equal("tok-expired", Resolver(expired, unscoped).Read().AccessToken);
+        Assert.Equal("tok-expired", Resolver(unscoped, expired).Read().AccessToken);
+    }
+
+    [Fact]
     public void RescansWhenTheChosenTokenHasExpired()
     {
         var windows = WriteCredentials("windows.json", "tok-windows", Noon);

@@ -91,6 +91,37 @@ public class ClaudeUsageProviderTests
     }
 
     [Fact]
+    public async Task ATokenWithoutTheProfileScopeIsReportedWithoutARequest()
+    {
+        var source = new StubSource(() => new ClaudeCredentials("tok-123", DateTimeOffset.UnixEpoch, HasProfileScope: false));
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
+
+        await Assert.ThrowsAsync<MissingScopeException>(
+            () => Provider(source, handler).FetchAsync(CancellationToken.None));
+
+        Assert.Null(handler.LastRequest);
+        Assert.Equal(1, source.Invalidations);
+    }
+
+    [Fact]
+    public async Task AForbiddenNamingTheProfileScopeBecomesMissingScope()
+    {
+        var source = Source();
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("""
+                { "type": "error", "error": { "type": "permission_error",
+                  "message": "OAuth token does not meet scope requirement user:profile" } }
+                """),
+        });
+
+        await Assert.ThrowsAsync<MissingScopeException>(
+            () => Provider(source, handler).FetchAsync(CancellationToken.None));
+
+        Assert.Equal(1, source.Invalidations);
+    }
+
+    [Fact]
     public async Task ARateLimitLeavesTheChosenSourceAlone()
     {
         var source = Source();

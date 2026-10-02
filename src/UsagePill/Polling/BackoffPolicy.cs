@@ -39,6 +39,7 @@ public sealed class BackoffPolicy
                 return _normalInterval;
 
             case AuthExpiredException:
+            case MissingScopeException:
             case NoCredentialsException:
                 return Climb(AuthFirst, _normalInterval, ref _authStep);
 

@@ -18,6 +18,7 @@ public static class LimitDisplay
 
     public const string NoCredentialsMessage = "Claude Code not logged in";
     public const string AuthExpiredMessage = "Login expired - start Claude Code to refresh";
+    public const string MissingScopeMessage = "Login lacks usage access - run /login in Claude Code";
 
     /// <summary>A weekly-scoped limit reports its own model-family label from the API; every
     /// other kind keeps the static label from <see cref="Order"/>.</summary>

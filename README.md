@@ -86,8 +86,13 @@ the machine takes over instead of the pill sending the same dead token again. Th
 check matters because the endpoint can answer an expired token with 429 rather than 401.
 The pill then keeps reading that one file every poll, which costs one file read and never
 wakes a stopped distribution. It looks at all the locations again only at startup, when
-the chosen file stops being readable, when its token passes its expiry, and when the
-usage endpoint rejects the token.
+the chosen file stops being readable, when its token passes its expiry, when the usage
+endpoint rejects the token, and when the token lacks the `user:profile` scope.
+
+A file whose token is empty does not count as a login at all. A token without the
+`user:profile` scope, which the usage endpoint requires, ranks below every other token,
+even an expired one: Claude Code refreshes an expired token in place, but no refresh adds
+a missing scope.
 
 If you have not used Claude Code for several hours, the token expires. The usage
 endpoint then rejects the request with 401 or 403, the session ring turns amber and
@@ -96,6 +101,12 @@ Code to refresh". Start Claude Code again, on Windows or in WSL, to refresh the 
 no restart is needed. After a rejected token the pill retries in 15 seconds and doubles
 that wait up to your poll interval, so the rings usually go live within 15 seconds of
 the refresh.
+
+If no token on the machine carries the `user:profile` scope, the pill does not call the
+endpoint at all. The session ring turns amber and shows `!`, and the tooltip and detail card
+read "Login lacks usage access - run /login in Claude Code". The same happens when the
+endpoint itself answers 403 naming that scope. Restarting Claude Code does not fix this;
+signing in again with `/login` does, and the pill picks the new token up on its next retry.
 
 ## Using it
 
@@ -172,6 +183,7 @@ The ring size range and the vertical layout, side by side:
 | All rings grey and empty, `--` inside | No poll has completed yet. Normal for the first few seconds after startup. |
 | All rings grey and empty, `-` inside, tooltip "Claude Code not logged in" | No credentials file on Windows or in any WSL distribution could be read. Sign in with Claude Code. |
 | First ring amber and full with `!`, others grey, tooltip "Login expired - start Claude Code to refresh" | The access token has expired. Start Claude Code to refresh it, then wait for the next poll. |
+| First ring amber and full with `!`, others grey, tooltip "Login lacks usage access - run /login in Claude Code" | The token lacks the `user:profile` scope the usage endpoint requires. Run `/login` in Claude Code to sign in again. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip "Rate limited, retrying at HH:MM" | The usage endpoint returned 429. The poller backs off and retries automatically. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip with an error summary | A network error or a 5xx response. The poller backs off and retries automatically. |
 
