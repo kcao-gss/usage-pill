@@ -14,10 +14,10 @@ namespace UsagePill;
 
 public partial class App : Application
 {
-    // Rebuilding the poller restarts its backoff ladder and fires an immediate refresh, so a
-    // rapid drag across the Interval slider (which raises SettingsChanged on every tick) must
-    // not rebuild it once per tick. This debounce coalesces a burst of drags into a single
-    // rebuild once the user settles on a value.
+    // A shorter interval can make a poll due at once, so a drag across the Interval slider
+    // (which raises SettingsChanged on every tick) must not reach the poller tick by tick: a
+    // drag passing through 1 minute would poll for a value the user never chose. This debounce
+    // hands the poller only the value the user settles on.
     private static readonly TimeSpan IntervalDebounce = TimeSpan.FromMilliseconds(800);
 
     // Coalesces a burst of SettingsChanged events (a slider drag can raise up to a hundred) into
@@ -101,7 +101,8 @@ public partial class App : Application
         };
 
         _activePollIntervalMinutes = _settings.PollIntervalMinutes;
-        _poller = CreatePoller(_activePollIntervalMinutes);
+        _poller = new UsagePoller(_provider, new BackoffPolicy(TimeSpan.FromMinutes(_activePollIntervalMinutes)), TimeProvider.System);
+        _poller.StateChanged += (_, state) => Dispatcher.Invoke(() => Render(state));
 
         _pill = new PillWindow(_settings, _theme);
         _detail = new DetailPopup(_settings, _theme);
@@ -111,7 +112,7 @@ public partial class App : Application
         _pill.LeftClicked += (_, pressedAt) => ToggleDetail(pressedAt);
         _pill.RightClicked += (_, _) => _tray.ShowContextMenu();
 
-        _tray.RefreshRequested += async (_, _) => await _poller.RefreshNowAsync();
+        _tray.RefreshRequested += async (_, _) => await _poller.RequestRefreshAsync();
         _tray.TogglePillRequested += (_, _) => TogglePill();
         _tray.SettingsRequested += (_, _) => OpenSettings();
         _tray.StartWithWindowsToggled += (_, _) => ToggleStartWithWindows();
@@ -120,13 +121,6 @@ public partial class App : Application
         _pill.Show();
         Render(_poller.State);
         _poller.Start();
-    }
-
-    private UsagePoller CreatePoller(int intervalMinutes)
-    {
-        var poller = new UsagePoller(_provider, new BackoffPolicy(TimeSpan.FromMinutes(intervalMinutes)), TimeProvider.System);
-        poller.StateChanged += (_, state) => Dispatcher.Invoke(() => Render(state));
-        return poller;
     }
 
     private void Render(UsageState state)
@@ -235,20 +229,16 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Swaps in a freshly built poller once the user has settled on a poll interval. The old
-    /// poller's schedule and backoff state are discarded; the new one starts immediately, which
-    /// re-fetches promptly rather than waiting out whatever was left of the old interval.
+    /// Hands the interval the user settled on to the running poller. Its schedule and backoff
+    /// state carry over, so changing the interval never sends an extra request.
     /// </summary>
     private void ApplyPendingInterval()
     {
         _intervalDebounceTimer.Stop();
         if (_settings.PollIntervalMinutes == _activePollIntervalMinutes) return;
 
-        var old = _poller;
         _activePollIntervalMinutes = _settings.PollIntervalMinutes;
-        _poller = CreatePoller(_activePollIntervalMinutes);
-        _poller.Start();
-        old.Dispose();
+        _poller.ChangeInterval(TimeSpan.FromMinutes(_activePollIntervalMinutes));
     }
 
     private void PersistSettings()

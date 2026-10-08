@@ -23,12 +23,14 @@ public sealed class BackoffPolicy
     // Backing off for zero seconds would spin against the server that just rate limited us.
     private static readonly TimeSpan RetryAfterFloor = TimeSpan.FromSeconds(60);
 
-    private readonly TimeSpan _normalInterval;
+    public BackoffPolicy(TimeSpan normalInterval) => NormalInterval = normalInterval;
+
+    /// <summary>The wait after a successful poll, and the cap of the auth ladder.</summary>
+    public TimeSpan NormalInterval { get; set; }
+
     private int _rateLimitStep;
     private int _transientStep;
     private int _authStep;
-
-    public BackoffPolicy(TimeSpan normalInterval) => _normalInterval = normalInterval;
 
     public TimeSpan NextDelay(Exception? failure)
     {
@@ -36,12 +38,12 @@ public sealed class BackoffPolicy
         {
             case null:
                 Reset();
-                return _normalInterval;
+                return NormalInterval;
 
             case AuthExpiredException:
             case MissingScopeException:
             case NoCredentialsException:
-                return Climb(AuthFirst, _normalInterval, ref _authStep);
+                return Climb(AuthFirst, NormalInterval, ref _authStep);
 
             case RateLimitedException rateLimited:
                 if (rateLimited.RetryAfter is { } retryAfter)

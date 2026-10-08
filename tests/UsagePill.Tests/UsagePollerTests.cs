@@ -180,6 +180,109 @@ public class UsagePollerTests
     }
 
     [Fact]
+    public async Task AManualRefreshPollsOnlyThirtySecondsAfterThePreviousPoll()
+    {
+        var (poller, provider, clock) = Build();
+        provider.EnqueueSuccess(1);
+        provider.EnqueueSuccess(2);
+        poller.Start();
+        await poller.WaitForIdleAsync();
+
+        clock.Advance(TimeSpan.FromSeconds(29));
+        await poller.RequestRefreshAsync();
+        Assert.Equal(1, provider.Calls);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await poller.RequestRefreshAsync();
+        Assert.Equal(2, provider.Calls);
+        Assert.Equal(2, poller.State.Snapshot!.Find(LimitKind.Session)!.Percent);
+    }
+
+    [Fact]
+    public async Task AManualRefreshDoesNotCutARateLimitShort()
+    {
+        var (poller, provider, clock) = Build();
+        provider.EnqueueFailure(new RateLimitedException(null));
+        provider.EnqueueSuccess(2);
+        poller.Start();
+        await poller.WaitForIdleAsync();
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await poller.RequestRefreshAsync();
+        Assert.Equal(1, provider.Calls);
+
+        // The rate limit ladder's first wait is five minutes.
+        clock.Advance(TimeSpan.FromMinutes(3));
+        await poller.WaitForIdleAsync();
+        Assert.Equal(2, provider.Calls);
+        Assert.Equal(UsageStatus.Ok, poller.State.Status);
+    }
+
+    [Fact]
+    public async Task ALongerIntervalMovesTheNextPollWithoutPolling()
+    {
+        var (poller, provider, clock) = Build();
+        provider.EnqueueSuccess(1);
+        provider.EnqueueSuccess(2);
+        poller.Start();
+        await poller.WaitForIdleAsync();
+
+        poller.ChangeInterval(TimeSpan.FromMinutes(10));
+        clock.Advance(TimeSpan.FromMinutes(9));
+        await poller.WaitForIdleAsync();
+        Assert.Equal(1, provider.Calls);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await poller.WaitForIdleAsync();
+        Assert.Equal(2, provider.Calls);
+    }
+
+    [Fact]
+    public async Task AShorterIntervalPollsAtOnceOnlyWhenThePollIsAlreadyDue()
+    {
+        var (poller, provider, clock) = Build();
+        provider.EnqueueSuccess(1);
+        provider.EnqueueSuccess(2);
+        poller.Start();
+        await poller.WaitForIdleAsync();
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        poller.ChangeInterval(TimeSpan.FromMinutes(2));
+        await poller.WaitForIdleAsync();
+        Assert.Equal(1, provider.Calls);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await poller.WaitForIdleAsync();
+        Assert.Equal(2, provider.Calls);
+
+        // A minute and a half past that poll when the interval drops to 1 minute.
+        provider.EnqueueSuccess(3);
+        clock.Advance(TimeSpan.FromMinutes(1.5));
+        poller.ChangeInterval(TimeSpan.FromMinutes(1));
+        await poller.WaitForIdleAsync();
+        Assert.Equal(3, provider.Calls);
+    }
+
+    [Fact]
+    public async Task AShorterIntervalDoesNotCutARateLimitShort()
+    {
+        var (poller, provider, clock) = Build();
+        provider.EnqueueFailure(new RateLimitedException(null));
+        provider.EnqueueSuccess(2);
+        poller.Start();
+        await poller.WaitForIdleAsync();
+
+        poller.ChangeInterval(TimeSpan.FromMinutes(1));
+        clock.Advance(TimeSpan.FromMinutes(4));
+        await poller.WaitForIdleAsync();
+        Assert.Equal(1, provider.Calls);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await poller.WaitForIdleAsync();
+        Assert.Equal(2, provider.Calls);
+    }
+
+    [Fact]
     public async Task ForeignCancellationPublishesFailureAndReschedulesTheTimer()
     {
         var (poller, provider, clock) = Build();

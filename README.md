@@ -82,9 +82,11 @@ It looks in every place you can be signed in on this machine:
 The token with the latest expiry wins, because that file belongs to the Claude Code
 that signed in or refreshed most recently. A token that is past its own expiry, or that
 the endpoint has rejected, drops to the bottom of that order, so another Claude Code on
-the machine takes over instead of the pill sending the same dead token again. The expiry
-check matters because the endpoint can answer an expired token with 429 rather than 401.
-The pill then keeps reading that one file every poll, which costs one file read and never
+the machine takes over. When no live token is left, the pill does not send the dead one
+at all: the endpoint answers a dead token that keeps asking with 429, and that 429 would
+hold the pill off for up to an hour after Claude Code refreshes the token. A token is
+sent again only once Claude Code replaces it with a new one.
+Once it has chosen, the pill keeps reading that one file every poll, which costs one file read and never
 wakes a stopped distribution. It looks at all the locations again only at startup, when
 the chosen file stops being readable, when its token passes its expiry, when the usage
 endpoint rejects the token, and when the token lacks the `user:profile` scope.
@@ -94,13 +96,14 @@ A file whose token is empty does not count as a login at all. A token without th
 even an expired one: Claude Code refreshes an expired token in place, but no refresh adds
 a missing scope.
 
-If you have not used Claude Code for several hours, the token expires. The usage
-endpoint then rejects the request with 401 or 403, the session ring turns amber and
-shows `!`, and the tooltip and detail card both read "Login expired - start Claude
+If you have not used Claude Code for several hours, the token expires. The pill sees
+the expiry in the credentials file and reports it without a request; a token the endpoint
+rejects with 401 or 403 is treated the same way from then on. The session ring turns amber
+and shows `!`, and the tooltip and detail card both read "Login expired - start Claude
 Code to refresh". Start Claude Code again, on Windows or in WSL, to refresh the token;
-no restart is needed. After a rejected token the pill retries in 15 seconds and doubles
-that wait up to your poll interval, so the rings usually go live within 15 seconds of
-the refresh.
+no restart is needed. While the login is expired the pill rereads the credentials file in
+15 seconds and doubles that wait up to your poll interval, so the rings go live within one
+poll interval of the refresh.
 
 If no token on the machine carries the `user:profile` scope, the pill does not call the
 endpoint at all. The session ring turns amber and shows `!`, and the tooltip and detail card
@@ -113,7 +116,10 @@ signing in again with `/login` does, and the pill picks the new token up on its 
 - **Left click** the pill to open the detail card: all three limits with their
   meters, extra usage credits, and reset times.
 - **Right click** the pill (or the tray icon) for the menu: refresh now, show or
-  hide the pill, settings, start with Windows, and quit.
+  hide the pill, settings, start with Windows, and quit. Refresh now does nothing within
+  30 seconds of the previous poll or while a rate limit is being waited out: the endpoint
+  answers a few requests within seconds with 429 and then refuses every request for about
+  five minutes.
 - **Drag** the pill to move it. Release near a screen edge or corner and it snaps
   flush. The position is saved.
 - The **tray icon** draws the session percentage, so you can hide the pill and
@@ -144,7 +150,10 @@ Open Settings from the tray menu ("Settings...") or edit
   the normal colour: amber above the threshold and red for a critical limit still win,
   and the tray icon and the detail card's meters use it too. Any other `#RRGGBB` works
   as `ringColor` in `settings.json`; an invalid value falls back to green.
-- **Refresh every**: 1 to 60 minutes, default 5.
+- **Refresh every**: 1 to 60 minutes, default 5. A new interval counts from the last
+  poll and never sends an extra request on its own: the pill polls at once only when
+  the last poll is already older than the new interval, and a rate limit or login
+  backoff in progress keeps its schedule.
 - **Amber above**: the warning threshold, 1 to 100%, default 75%.
 - **Start with Windows**: adds or removes a shortcut in your Startup folder. No
   registry writes.
@@ -184,7 +193,7 @@ The ring size range and the vertical layout, side by side:
 | All rings grey and empty, `-` inside, tooltip "Claude Code not logged in" | No credentials file on Windows or in any WSL distribution could be read. Sign in with Claude Code. |
 | First ring amber and full with `!`, others grey, tooltip "Login expired - start Claude Code to refresh" | The access token has expired. Start Claude Code to refresh it, then wait for the next poll. |
 | First ring amber and full with `!`, others grey, tooltip "Login lacks usage access - run /login in Claude Code" | The token lacks the `user:profile` scope the usage endpoint requires. Run `/login` in Claude Code to sign in again. |
-| Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip "Rate limited, retrying at HH:MM" | The usage endpoint returned 429. The poller backs off and retries automatically. |
+| Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip "Rate limited, retrying at HH:MM" | The usage endpoint returned 429. The poller waits as long as the endpoint's `Retry-After` asks, or backs off from 5 minutes up to an hour without one, and retries automatically. Refresh now does not cut the wait short. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip with an error summary | A network error or a 5xx response. The poller backs off and retries automatically. |
 
 A failed poll never crashes the app and never blocks the UI; it just keeps showing

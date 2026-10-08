@@ -14,6 +14,18 @@ public sealed class UsagePoller : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    // The usage endpoint answers a burst of a few requests within seconds with 429 and then
+    // refuses every request for about five minutes, while one request every 30 seconds runs
+    // indefinitely. A manual refresh this soon after the previous poll would only start a burst.
+    private static readonly TimeSpan ManualRefreshSpacing = TimeSpan.FromSeconds(30);
+
+    // Guards the schedule: the backoff policy, the timer's due time, and the fields below.
+    // Never held across a provider call or a StateChanged notification.
+    private readonly object _schedule = new();
+    private DateTimeOffset? _lastPollAt;
+    private Exception? _lastFailure;
+    private bool _polling;
+
     private ITimer? _timer;
     private volatile Task _inFlight = Task.CompletedTask;
     private volatile bool _disposed;
@@ -46,6 +58,53 @@ public sealed class UsagePoller : IDisposable
 
     /// <summary>Waits for the poll that the timer started, so tests are deterministic.</summary>
     public Task WaitForIdleAsync() => _inFlight;
+
+    /// <summary>
+    /// A refresh the user asked for. It polls only when that cannot start a burst against the
+    /// endpoint: not while a rate limit is being waited out, not while a poll is in flight, and
+    /// not within <see cref="ManualRefreshSpacing"/> of the previous poll. The state on screen
+    /// already says when the next poll runs, so a skipped refresh needs no message of its own.
+    /// </summary>
+    public Task RequestRefreshAsync()
+    {
+        lock (_schedule)
+        {
+            if (_polling || _lastFailure is RateLimitedException) return Task.CompletedTask;
+
+            var now = _clock.GetUtcNow();
+            if (_lastPollAt is { } last && now - last < ManualRefreshSpacing) return Task.CompletedTask;
+
+            // Claim the slot now, so a second click before this poll starts is skipped too.
+            _lastPollAt = now;
+        }
+
+        return RefreshNowAsync();
+    }
+
+    /// <summary>
+    /// Applies a new poll interval without an extra request. After a successful poll the next
+    /// one moves to the previous poll plus the new interval, or runs now if that has passed. A
+    /// failure's wait, and a poll in flight, keep their schedule: the poll that ends one picks
+    /// the new interval up for the wait after it.
+    /// </summary>
+    public void ChangeInterval(TimeSpan interval)
+    {
+        lock (_schedule)
+        {
+            _backoff.NormalInterval = interval;
+
+            if (_disposed || _timer is null || _polling || _lastFailure is not null || _lastPollAt is not { } last) return;
+
+            var wait = last + interval - _clock.GetUtcNow();
+            try
+            {
+                _timer.Change(wait > TimeSpan.Zero ? wait : TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+    }
 
     public async Task RefreshNowAsync()
     {
@@ -81,6 +140,12 @@ public sealed class UsagePoller : IDisposable
         {
             if (_disposed) return;
 
+            lock (_schedule)
+            {
+                _polling = true;
+                _lastPollAt = _clock.GetUtcNow();
+            }
+
             Exception? failure = null;
             try
             {
@@ -100,21 +165,28 @@ public sealed class UsagePoller : IDisposable
                 failure = e;
             }
 
-            var delay = _backoff.NextDelay(failure);
-            if (failure is not null) Publish(BuildFailureState(failure, _clock.GetUtcNow() + delay));
-
-            // A concurrent Dispose() may have torn the timer down while this poll was
-            // in flight; rescheduling it then would throw ObjectDisposedException.
-            if (!_disposed)
+            TimeSpan delay;
+            lock (_schedule)
             {
-                try
+                delay = _backoff.NextDelay(failure);
+                _lastFailure = failure;
+                _polling = false;
+
+                // A concurrent Dispose() may have torn the timer down while this poll was
+                // in flight; rescheduling it then would throw ObjectDisposedException.
+                if (!_disposed)
                 {
-                    _timer?.Change(delay, Timeout.InfiniteTimeSpan);
-                }
-                catch (ObjectDisposedException)
-                {
+                    try
+                    {
+                        _timer?.Change(delay, Timeout.InfiniteTimeSpan);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                    }
                 }
             }
+
+            if (failure is not null) Publish(BuildFailureState(failure, _clock.GetUtcNow() + delay));
         }
         finally
         {

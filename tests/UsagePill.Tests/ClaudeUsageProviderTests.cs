@@ -13,12 +13,14 @@ public class ClaudeUsageProviderTests
     {
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond;
         public HttpRequestMessage? LastRequest { get; private set; }
+        public int Requests { get; private set; }
 
         public StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) => _respond = respond;
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             LastRequest = request;
+            Requests++;
             return Task.FromResult(_respond(request));
         }
     }
@@ -36,7 +38,7 @@ public class ClaudeUsageProviderTests
     }
 
     private static StubSource Source() =>
-        new(() => new ClaudeCredentials("tok-123", DateTimeOffset.UnixEpoch));
+        new(() => new ClaudeCredentials("tok-123", DateTimeOffset.MaxValue));
 
     private static ClaudeUsageProvider Provider(IClaudeCredentialSource source, StubHandler handler) =>
         Provider(source, handler, TimeProvider.System);
@@ -119,6 +121,69 @@ public class ClaudeUsageProviderTests
             () => Provider(source, handler).FetchAsync(CancellationToken.None));
 
         Assert.Equal(1, source.Invalidations);
+    }
+
+    [Fact]
+    public async Task ATokenAtItsExpiryIsReportedWithoutARequest()
+    {
+        var now = new DateTimeOffset(2026, 10, 7, 19, 58, 0, TimeSpan.Zero);
+        var clock = new FakeTimeProvider(now);
+        var source = new StubSource(() => new ClaudeCredentials("tok-123", now));
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
+
+        await Assert.ThrowsAsync<AuthExpiredException>(
+            () => Provider(source, handler, clock).FetchAsync(CancellationToken.None));
+
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
+    public async Task ATokenOneSecondBeforeItsExpiryIsStillSent()
+    {
+        var now = new DateTimeOffset(2026, 10, 7, 19, 58, 0, TimeSpan.Zero);
+        var clock = new FakeTimeProvider(now);
+        var source = new StubSource(() => new ClaudeCredentials("tok-123", now.AddSeconds(1)));
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") });
+
+        await Provider(source, handler, clock).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task ARejectedTokenIsNotSentAgainButItsReplacementIs()
+    {
+        var token = "tok-dead";
+        var source = new StubSource(() => new ClaudeCredentials(token, DateTimeOffset.MaxValue));
+        var handler = new StubHandler(request => request.Headers.Authorization!.Parameter == "tok-dead"
+            ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") });
+        var provider = Provider(source, handler);
+
+        await Assert.ThrowsAsync<AuthExpiredException>(() => provider.FetchAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<AuthExpiredException>(() => provider.FetchAsync(CancellationToken.None));
+        Assert.Equal(1, handler.Requests);
+
+        // Claude Code refreshed the file in place.
+        token = "tok-fresh";
+        await provider.FetchAsync(CancellationToken.None);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task ATokenRefusedForTheProfileScopeStaysMissingScopeWithoutARequest()
+    {
+        var source = Source();
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("""{ "error": { "message": "OAuth token does not meet scope requirement user:profile" } }"""),
+        });
+        var provider = Provider(source, handler);
+
+        await Assert.ThrowsAsync<MissingScopeException>(() => provider.FetchAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<MissingScopeException>(() => provider.FetchAsync(CancellationToken.None));
+
+        Assert.Equal(1, handler.Requests);
     }
 
     [Fact]

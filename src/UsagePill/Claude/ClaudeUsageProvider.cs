@@ -21,6 +21,9 @@ public sealed class ClaudeUsageProvider : IUsageProvider
     private readonly HttpClient _http;
     private readonly TimeProvider _clock;
 
+    // The last token the endpoint refused, and whether it refused it for the missing scope.
+    private (string Token, bool MissingScope)? _rejection;
+
     public ClaudeUsageProvider(IClaudeCredentialSource credentials, HttpClient http, TimeProvider clock)
     {
         _credentials = credentials;
@@ -45,6 +48,22 @@ public sealed class ClaudeUsageProvider : IUsageProvider
             throw new MissingScopeException("The access token lacks the user:profile scope.");
         }
 
+        // A dead token only collects refusals, and the endpoint answers a dead token that keeps
+        // asking with 429. That 429 then holds the next poll off for up to an hour, long after
+        // Claude Code has refreshed the token. So a token that is past its expiry, or that the
+        // endpoint already refused, is reported without a request until a new token replaces it.
+        if (credentials.ExpiresAt is { } expiresAt && expiresAt <= _clock.GetUtcNow())
+        {
+            throw new AuthExpiredException("The access token is past its expiry.");
+        }
+
+        if (_rejection is { } rejection && rejection.Token == credentials.AccessToken)
+        {
+            throw rejection.MissingScope
+                ? new MissingScopeException("The usage endpoint already refused this token for lacking the user:profile scope.")
+                : new AuthExpiredException("The usage endpoint already rejected this access token.");
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
         request.Headers.Add("anthropic-beta", BetaHeader);
@@ -62,8 +81,11 @@ public sealed class ClaudeUsageProvider : IUsageProvider
 
                 // A file without a scopes list still reaches the endpoint, which names the
                 // missing scope in its 403 body. Restarting Claude Code would not fix that.
-                if (response.StatusCode == HttpStatusCode.Forbidden &&
-                    (await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).Contains(ClaudeCredentials.ProfileScope, StringComparison.Ordinal))
+                var missingScope = response.StatusCode == HttpStatusCode.Forbidden &&
+                    (await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false)).Contains(ClaudeCredentials.ProfileScope, StringComparison.Ordinal);
+                _rejection = (credentials.AccessToken, missingScope);
+
+                if (missingScope)
                 {
                     throw new MissingScopeException("The usage endpoint refused a token without the user:profile scope.");
                 }
