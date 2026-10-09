@@ -20,29 +20,26 @@ namespace UsagePill.Claude;
 /// again. The expiry check cannot wait for a rejection: the usage endpoint can answer an
 /// expired token with 429 instead of 401, and a 429 alone would pin the pill to that file.
 ///
-/// A token without the user:profile scope ranks below even a dead one: Claude Code refreshes a
+/// A token without the user:profile scope ranks below even a dead one: a refresh renews a
 /// dead token in place, but no refresh ever adds the scope the usage endpoint requires.
+///
+/// <see cref="RefreshAsync"/> renews an expired token in the file it was served from, and
+/// in no other file.
 /// </summary>
 public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
 {
     private readonly Func<IReadOnlyList<string>> _candidatePaths;
-    private readonly Func<string, ClaudeCredentials> _readPath;
     private readonly object _gate = new();
     private readonly TimeProvider _clock;
 
     private string? _chosenPath;
+    private string? _servedPath;
     private string? _servedToken;
     private string? _rejectedToken;
 
     public ClaudeCredentialResolver(Func<IReadOnlyList<string>> candidatePaths, TimeProvider clock)
-        : this(candidatePaths, path => new ClaudeCredentialStore(path).Read(), clock)
-    {
-    }
-
-    public ClaudeCredentialResolver(Func<IReadOnlyList<string>> candidatePaths, Func<string, ClaudeCredentials> readPath, TimeProvider clock)
     {
         _candidatePaths = candidatePaths;
-        _readPath = readPath;
         _clock = clock;
     }
 
@@ -56,7 +53,7 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
             {
                 try
                 {
-                    var credentials = _readPath(path);
+                    var credentials = new ClaudeCredentialStore(path).Read();
                     if (!IsExpired(credentials)) return Serve(credentials);
 
                     // Claude Code there stopped refreshing. Another one may be live.
@@ -84,8 +81,30 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
         }
     }
 
+    public async Task<ClaudeCredentials> RefreshAsync(
+        ClaudeCredentials current,
+        Func<string, CancellationToken, Task<ClaudeTokenGrant>> exchange,
+        CancellationToken ct)
+    {
+        string path;
+        lock (_gate)
+        {
+            if (_servedPath is null || _servedToken != current.AccessToken)
+            {
+                throw new InvalidOperationException("Only the token served last can be refreshed.");
+            }
+
+            path = _servedPath;
+        }
+
+        await new ClaudeCredentialStore(path).RefreshAsync(current, exchange, ct).ConfigureAwait(false);
+        return Read();
+    }
+
+    /// <summary>Every caller has just pointed <see cref="_chosenPath"/> at the file the token came from.</summary>
     private ClaudeCredentials Serve(ClaudeCredentials credentials)
     {
+        _servedPath = _chosenPath;
         _servedToken = credentials.AccessToken;
         return credentials;
     }
@@ -103,7 +122,7 @@ public sealed class ClaudeCredentialResolver : IClaudeCredentialSource
             ClaudeCredentials candidate;
             try
             {
-                candidate = _readPath(path);
+                candidate = new ClaudeCredentialStore(path).Read();
             }
             catch (NoCredentialsException)
             {

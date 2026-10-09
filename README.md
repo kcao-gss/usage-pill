@@ -64,8 +64,9 @@ needs the Windows .NET 8 desktop runtime installed to run.
 
 Usage Pill reads the access token Claude Code stores in its credentials file and calls
 `https://api.anthropic.com/api/oauth/usage`, the same endpoint behind Claude Code's
-`/usage` command. It only reads that file: it never writes to it and never refreshes
-the token itself.
+`/usage` command. When that token has expired, the pill renews it with the refresh token
+in the same file and writes the new tokens back, the way Claude Code does. See
+[When the login expires](#when-the-login-expires).
 
 The request identifies itself as `claude-code/<version>`, because the endpoint picks a rate
 limit bucket from that header. A client that does not name itself Claude Code is limited after
@@ -82,10 +83,10 @@ It looks in every place you can be signed in on this machine:
 The token with the latest expiry wins, because that file belongs to the Claude Code
 that signed in or refreshed most recently. A token that is past its own expiry, or that
 the endpoint has rejected, drops to the bottom of that order, so another Claude Code on
-the machine takes over. When no live token is left, the pill does not send the dead one
-at all: the endpoint answers a dead token that keeps asking with 429, and that 429 would
-hold the pill off for up to an hour after Claude Code refreshes the token. A token is
-sent again only once Claude Code replaces it with a new one.
+the machine takes over. The pill never sends a token the endpoint has already rejected:
+the endpoint answers a dead token that keeps asking with 429, and that 429 would hold
+the pill off for up to an hour. A rejected token is sent again only once something
+replaces it with a new one.
 Once it has chosen, the pill keeps reading that one file every poll, which costs one file read and never
 wakes a stopped distribution. It looks at all the locations again only at startup, when
 the chosen file stops being readable, when its token passes its expiry, when the usage
@@ -93,23 +94,43 @@ endpoint rejects the token, and when the token lacks the `user:profile` scope.
 
 A file whose token is empty does not count as a login at all. A token without the
 `user:profile` scope, which the usage endpoint requires, ranks below every other token,
-even an expired one: Claude Code refreshes an expired token in place, but no refresh adds
-a missing scope.
-
-If you have not used Claude Code for several hours, the token expires. The pill sees
-the expiry in the credentials file and reports it without a request; a token the endpoint
-rejects with 401 or 403 is treated the same way from then on. The session ring turns amber
-and shows `!`, and the tooltip and detail card both read "Login expired - start Claude
-Code to refresh". Start Claude Code again, on Windows or in WSL, to refresh the token;
-no restart is needed. While the login is expired the pill rereads the credentials file in
-15 seconds and doubles that wait up to your poll interval, so the rings go live within one
-poll interval of the refresh.
+even an expired one: a refresh renews an expired token, but no refresh adds a missing
+scope.
 
 If no token on the machine carries the `user:profile` scope, the pill does not call the
 endpoint at all. The session ring turns amber and shows `!`, and the tooltip and detail card
 read "Login lacks usage access - run /login in Claude Code". The same happens when the
 endpoint itself answers 403 naming that scope. Restarting Claude Code does not fix this;
 signing in again with `/login` does, and the pill picks the new token up on its next retry.
+
+### When the login expires
+
+The access token expires after about eight hours. While Claude Code runs, it renews the
+token in the credentials file before then. When no program renews it, the pill does:
+
+- It waits until the token is past its expiry. It never renews early, so a running
+  Claude Code, or another tool such as the Raycast Agent Usage extension, gets to renew
+  first.
+- It renews only the file it reads now, and it sends the refresh token to
+  `https://platform.claude.com/v1/oauth/token` with Claude Code's client ID. That request
+  names itself `usage-pill/<version>`: the token endpoint answers a `claude-code/` agent
+  with 429.
+- A renewal can replace the refresh token and make the old one invalid. So the pill writes
+  the new tokens only while the file still holds the tokens it started from. If another
+  program renewed the file in the meantime, the pill keeps that program's tokens and
+  uses them.
+- It changes only `accessToken`, `refreshToken` and `expiresAt`, and keeps every other
+  field. It writes in place, so the file keeps its owner, its permissions and, in WSL,
+  its `600` mode. A running Claude Code sees the change and uses the new token.
+
+The session ring turns amber and shows `!`, and the tooltip and detail card read "Login
+expired - start Claude Code to refresh", only when the pill cannot renew the token: the
+file has no refresh token, the pill cannot write the file, or the token endpoint refused
+the refresh token. The pill does not send a refused refresh token again. A token that the
+usage endpoint rejects with 401 or 403 also shows this state. Start Claude Code, on
+Windows or in WSL, and sign in with `/login` if it asks. No restart is needed: while the
+login is expired the pill rereads the credentials file in 15 seconds and doubles that wait
+up to your poll interval, so the rings go live within one poll interval of the new login.
 
 ## Using it
 
@@ -191,7 +212,7 @@ The ring size range and the vertical layout, side by side:
 |---|---|
 | All rings grey and empty, `--` inside | No poll has completed yet. Normal for the first few seconds after startup. |
 | All rings grey and empty, `-` inside, tooltip "Claude Code not logged in" | No credentials file on Windows or in any WSL distribution could be read. Sign in with Claude Code. |
-| First ring amber and full with `!`, others grey, tooltip "Login expired - start Claude Code to refresh" | The access token has expired. Start Claude Code to refresh it, then wait for the next poll. |
+| First ring amber and full with `!`, others grey, tooltip "Login expired - start Claude Code to refresh" | The access token has expired and the pill could not renew it: the file has no refresh token, the pill cannot write the file, or the refresh token was refused. Start Claude Code, run `/login` if it asks, then wait for the next poll. |
 | First ring amber and full with `!`, others grey, tooltip "Login lacks usage access - run /login in Claude Code" | The token lacks the `user:profile` scope the usage endpoint requires. Run `/login` in Claude Code to sign in again. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip "Rate limited, retrying at HH:MM" | The usage endpoint returned 429. The poller waits as long as the endpoint's `Retry-After` asks, or backs off from 5 minutes up to an hour without one, and retries automatically. Refresh now does not cut the wait short. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip with an error summary | A network error or a 5xx response. The poller backs off and retries automatically. |

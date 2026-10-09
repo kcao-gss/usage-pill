@@ -12,6 +12,6 @@ Checksums are in `SHA256SUMS.txt`.
 ## Requirements
 
 - Windows 10 or 11, x64.
-- Claude Code signed in on the same machine, on Windows or in WSL. The app reads the credentials file read-only and never refreshes the token. When both are signed in, the login that refreshed most recently is used.
+- Claude Code signed in on the same machine, on Windows or in WSL. When the access token has expired, the app renews it with the refresh token and writes the new tokens back into the same credentials file. When both are signed in, the login that refreshed most recently is used.
 
 See the README for the full guide.

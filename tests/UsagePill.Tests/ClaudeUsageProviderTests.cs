@@ -29,12 +29,29 @@ public class ClaudeUsageProviderTests
     {
         private readonly Func<ClaudeCredentials> _read;
         public int Invalidations { get; private set; }
+        public int Refreshes { get; private set; }
 
         public StubSource(Func<ClaudeCredentials> read) => _read = read;
 
         public ClaudeCredentials Read() => _read();
 
         public void Invalidate() => Invalidations++;
+
+        /// <summary>Behaves like a file nobody else touches: the grant replaces the tokens.</summary>
+        public async Task<ClaudeCredentials> RefreshAsync(
+            ClaudeCredentials current,
+            Func<string, CancellationToken, Task<ClaudeTokenGrant>> exchange,
+            CancellationToken ct)
+        {
+            Refreshes++;
+            var grant = await exchange(current.RefreshToken!, ct);
+            return current with
+            {
+                AccessToken = grant.AccessToken,
+                ExpiresAt = grant.ExpiresAt,
+                RefreshToken = grant.RefreshToken ?? current.RefreshToken,
+            };
+        }
     }
 
     private static StubSource Source() =>
@@ -124,7 +141,7 @@ public class ClaudeUsageProviderTests
     }
 
     [Fact]
-    public async Task ATokenAtItsExpiryIsReportedWithoutARequest()
+    public async Task ATokenAtItsExpiryWithoutARefreshTokenIsReportedWithoutARequest()
     {
         var now = new DateTimeOffset(2026, 10, 7, 19, 58, 0, TimeSpan.Zero);
         var clock = new FakeTimeProvider(now);
@@ -135,6 +152,134 @@ public class ClaudeUsageProviderTests
             () => Provider(source, handler, clock).FetchAsync(CancellationToken.None));
 
         Assert.Equal(0, handler.Requests);
+    }
+
+    private static readonly DateTimeOffset Now = new(2026, 10, 7, 19, 58, 0, TimeSpan.Zero);
+
+    private static StubSource ExpiredSource(Func<string> refreshToken) =>
+        new(() => new ClaudeCredentials("tok-old", Now, RefreshToken: refreshToken()));
+
+    private static HttpResponseMessage Json(string json) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(json) };
+
+    [Fact]
+    public async Task AnExpiredTokenIsRenewedWithClaudeCodesClientAndTheNewTokenIsSent()
+    {
+        var source = ExpiredSource(() => "ref-old");
+        string? tokenRequestBody = null;
+        var handler = new StubHandler(request =>
+        {
+            if (request.RequestUri!.ToString() == ClaudeUsageProvider.TokenUrl)
+            {
+                Assert.Equal(HttpMethod.Post, request.Method);
+                // The token endpoint 429s a claude-code/ agent outright.
+                Assert.StartsWith("usage-pill/", request.Headers.UserAgent.ToString());
+                tokenRequestBody = request.Content!.ReadAsStringAsync().Result;
+                return Json("""{ "access_token": "tok-new", "refresh_token": "ref-new", "expires_in": 28800 }""");
+            }
+
+            Assert.Equal("tok-new", request.Headers.Authorization!.Parameter);
+            return Json("{}");
+        });
+
+        await Provider(source, handler, new FakeTimeProvider(Now)).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(
+            "grant_type=refresh_token&refresh_token=ref-old&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+            tokenRequestBody);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task TheGrantExpiresTheGrantedNumberOfSecondsFromNow()
+    {
+        ClaudeTokenGrant? grant = null;
+        var source = new CapturingSource(new ClaudeCredentials("tok-old", Now, RefreshToken: "ref-old"), g => grant = g);
+        var handler = new StubHandler(request => request.Method == HttpMethod.Post
+            ? Json("""{ "access_token": "tok-new", "expires_in": 28800 }""")
+            : Json("{}"));
+
+        await Provider(source, handler, new FakeTimeProvider(Now)).FetchAsync(CancellationToken.None);
+
+        Assert.Equal(new ClaudeTokenGrant("tok-new", null, Now.AddHours(8)), grant);
+    }
+
+    private sealed class CapturingSource(ClaudeCredentials current, Action<ClaudeTokenGrant> capture) : IClaudeCredentialSource
+    {
+        public ClaudeCredentials Read() => current;
+
+        public void Invalidate() { }
+
+        public async Task<ClaudeCredentials> RefreshAsync(
+            ClaudeCredentials expired,
+            Func<string, CancellationToken, Task<ClaudeTokenGrant>> exchange,
+            CancellationToken ct)
+        {
+            var grant = await exchange(expired.RefreshToken!, ct);
+            capture(grant);
+            return expired with { AccessToken = grant.AccessToken, ExpiresAt = grant.ExpiresAt };
+        }
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task ARefusedRefreshTokenIsNotSentAgainButANewSignInIs(HttpStatusCode refusal)
+    {
+        var refreshToken = "ref-revoked";
+        var source = ExpiredSource(() => refreshToken);
+        var handler = new StubHandler(request => request.Method == HttpMethod.Post
+            ? request.Content!.ReadAsStringAsync().Result.Contains("ref-revoked")
+                ? new HttpResponseMessage(refusal)
+                : Json("""{ "access_token": "tok-new", "expires_in": 3600 }""")
+            : Json("{}"));
+        var provider = Provider(source, handler, new FakeTimeProvider(Now));
+
+        await Assert.ThrowsAsync<AuthExpiredException>(() => provider.FetchAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<AuthExpiredException>(() => provider.FetchAsync(CancellationToken.None));
+        Assert.Equal(1, handler.Requests);
+
+        // The user ran /login, which wrote a new refresh token.
+        refreshToken = "ref-signed-in";
+        await provider.FetchAsync(CancellationToken.None);
+        Assert.Equal(3, handler.Requests);
+    }
+
+    [Fact]
+    public async Task ARateLimitedRefreshCarriesRetryAfterAndIsTriedAgain()
+    {
+        var source = ExpiredSource(() => "ref-old");
+        var handler = new StubHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(90));
+            return response;
+        });
+        var provider = Provider(source, handler, new FakeTimeProvider(Now));
+
+        var limited = await Assert.ThrowsAsync<RateLimitedException>(() => provider.FetchAsync(CancellationToken.None));
+        Assert.Equal(TimeSpan.FromSeconds(90), limited.RetryAfter);
+
+        await Assert.ThrowsAsync<RateLimitedException>(() => provider.FetchAsync(CancellationToken.None));
+        Assert.Equal(2, source.Refreshes);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("""{ "expires_in": 3600 }""")]
+    [InlineData("""{ "access_token": "", "expires_in": 3600 }""")]
+    [InlineData("""{ "access_token": "tok-new" }""")]
+    [InlineData("""{ "access_token": "tok-new", "expires_in": 0 }""")]
+    public async Task AGrantWithoutAUsableTokenAndExpiryIsANetworkError(string body)
+    {
+        var source = ExpiredSource(() => "ref-old");
+        var handler = new StubHandler(_ => Json(body));
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => Provider(source, handler, new FakeTimeProvider(Now)).FetchAsync(CancellationToken.None));
+
+        Assert.Equal(1, handler.Requests);
     }
 
     [Fact]

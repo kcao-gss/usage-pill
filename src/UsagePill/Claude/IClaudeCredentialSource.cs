@@ -11,4 +11,15 @@ public interface IClaudeCredentialSource
     /// at every location again instead of trusting its remembered choice.
     /// </summary>
     void Invalidate();
+
+    /// <summary>
+    /// Renews <paramref name="current"/>, the expired token <see cref="Read"/> returned last, in
+    /// the file it came from, and returns what that file holds afterwards: the refreshed token,
+    /// or the token another program wrote there first. <paramref name="exchange"/> trades a
+    /// refresh token for a new token pair.
+    /// </summary>
+    Task<ClaudeCredentials> RefreshAsync(
+        ClaudeCredentials current,
+        Func<string, CancellationToken, Task<ClaudeTokenGrant>> exchange,
+        CancellationToken ct);
 }

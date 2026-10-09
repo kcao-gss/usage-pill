@@ -14,7 +14,7 @@ Success criteria:
 
 - The pill shows the current 5-hour session utilization within 5 minutes of truth.
 - The pill never blocks, never steals focus, and never crashes on bad data.
-- The app never writes to Claude Code credential files.
+- The app writes a Claude Code credentials file only to renew an expired token, and only while the file still holds the tokens the renewal started from.
 
 ## 2. Data source (verified)
 
@@ -92,7 +92,7 @@ UsagePill.App (WPF)
 ├─ Claude
 │  ├─ WslDistributions      // distribution names from the Lxss registry key
 │  ├─ CredentialSources     // every candidate credentials path, Windows and WSL
-│  ├─ ClaudeCredentialStore // read one credentials file, read-only
+│  ├─ ClaudeCredentialStore // read one credentials file; write a renewed token back, guarded
 │  ├─ ClaudeCredentialResolver // choose the freshest unrejected source, remember it, rescan on failure
 │  └─ ClaudeUsageProvider   // HTTP call + JSON mapping
 ├─ Polling
@@ -120,10 +120,12 @@ Rules:
    being readable, and when the endpoint rejects the token. A rescan after a rejection
    ranks the rejected token last, so a second Claude Code takes over; the rejection
    follows the token string, so the same file wins again once it holds a fresh token.
-3. `ClaudeUsageProvider` sends the request and maps the response to a `UsageSnapshot`.
-4. The poller publishes a `UsageState`; `PillWindow` and `DetailPopup` re-render.
-
-The app never writes the credentials file and never performs an OAuth refresh.
+3. `ClaudeUsageProvider` renews a token that is past its expiry: it trades the refresh
+   token at `https://platform.claude.com/v1/oauth/token` and `ClaudeCredentialStore` writes
+   the new tokens into the same file, in place, only while that file still holds the tokens
+   the renewal started from. A refresh token the endpoint refuses is not sent again.
+4. `ClaudeUsageProvider` sends the request and maps the response to a `UsageSnapshot`.
+5. The poller publishes a `UsageState`; `PillWindow` and `DetailPopup` re-render.
 
 ## 5. Pill appearance
 
@@ -262,7 +264,6 @@ End-to-end verification (manual, required before "done"):
 ## 9. Non-goals for MVP
 
 - Providers other than Claude.
-- OAuth token refresh by this app.
 - Usage history, charts, or notifications.
 - An installer. A published folder plus an `.exe` is enough.
 

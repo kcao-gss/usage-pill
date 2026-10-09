@@ -141,13 +141,132 @@ public class ClaudeCredentialStoreTests : IDisposable
     }
 
     [Fact]
-    public void NeverPrintsTheAccessToken()
+    public void NeverPrintsATokenOrARefreshToken()
     {
-        var credentials = new ClaudeCredentials("sk-ant-oat01-abc", DateTimeOffset.UnixEpoch);
+        var credentials = new ClaudeCredentials("sk-ant-oat01-abc", DateTimeOffset.UnixEpoch, RefreshToken: "sk-ant-ort01-def");
+        var grant = new ClaudeTokenGrant("sk-ant-oat01-new", "sk-ant-ort01-new", DateTimeOffset.UnixEpoch);
 
-        var text = credentials.ToString();
+        var text = credentials.ToString() + grant.ToString();
 
         Assert.DoesNotContain("sk-ant-oat01-abc", text);
+        Assert.DoesNotContain("sk-ant-ort01-def", text);
+        Assert.DoesNotContain("sk-ant-oat01-new", text);
+        Assert.DoesNotContain("sk-ant-ort01-new", text);
+    }
+
+    [Fact]
+    public void ReadsTheRefreshTokenAndTreatsABlankOneAsNone()
+    {
+        var path = WriteFile(SignedIn);
+        Assert.Equal("ref-old", new ClaudeCredentialStore(path).Read().RefreshToken);
+
+        WriteFile("""{ "claudeAiOauth": { "accessToken": "tok-old", "refreshToken": "  " } }""");
+        Assert.Null(new ClaudeCredentialStore(path).Read().RefreshToken);
+    }
+
+    private const string SignedIn = """
+        { "mcpOAuth": { "server|1": { "serverUrl": "https://example.com/mcp?a=1&b=2" } },
+          "claudeAiOauth": { "accessToken": "tok-old", "refreshToken": "ref-old", "expiresAt": 1000,
+            "scopes": ["user:inference", "user:profile"], "subscriptionType": "team" } }
+        """;
+
+    private static readonly DateTimeOffset NewExpiry = DateTimeOffset.FromUnixTimeMilliseconds(1791586556353);
+
+    [Fact]
+    public async Task RefreshWritesTheNewTokensAndKeepsEveryOtherField()
+    {
+        var path = WriteFile(SignedIn);
+        var store = new ClaudeCredentialStore(path);
+        string? spent = null;
+
+        await store.RefreshAsync(store.Read(), (refreshToken, _) =>
+        {
+            spent = refreshToken;
+            return Task.FromResult(new ClaudeTokenGrant("tok-new", "ref-new", NewExpiry));
+        }, CancellationToken.None);
+
+        Assert.Equal("ref-old", spent);
+        Assert.Equal(new ClaudeCredentials("tok-new", NewExpiry, true, "ref-new"), store.Read());
+
+        var json = File.ReadAllText(path);
+        Assert.Contains("\"subscriptionType\":\"team\"", json);
+        Assert.Contains("\"scopes\":[\"user:inference\",\"user:profile\"]", json);
+        Assert.Contains("https://example.com/mcp?a=1&b=2", json);
+        Assert.False(File.ReadAllBytes(path).AsSpan().StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }), "no BOM");
+    }
+
+    [Fact]
+    public async Task RefreshKeepsTheRefreshTokenWhenTheGrantCarriesNone()
+    {
+        var path = WriteFile(SignedIn);
+        var store = new ClaudeCredentialStore(path);
+
+        await store.RefreshAsync(store.Read(),
+            (_, _) => Task.FromResult(new ClaudeTokenGrant("tok-new", null, NewExpiry)), CancellationToken.None);
+
+        Assert.Equal("ref-old", store.Read().RefreshToken);
+        Assert.Equal("tok-new", store.Read().AccessToken);
+    }
+
+    [Fact]
+    public async Task RefreshLeavesTokensAnotherProgramWroteDuringTheExchange()
+    {
+        var path = WriteFile(SignedIn);
+        var store = new ClaudeCredentialStore(path);
+        const string Raycast = """{ "claudeAiOauth": { "accessToken": "tok-raycast", "refreshToken": "ref-raycast" } }""";
+
+        await store.RefreshAsync(store.Read(), (_, _) =>
+        {
+            // Raycast or Claude Code refreshed the same file while the request was in flight.
+            File.WriteAllText(path, Raycast);
+            return Task.FromResult(new ClaudeTokenGrant("tok-new", "ref-new", NewExpiry));
+        }, CancellationToken.None);
+
+        Assert.Equal(Raycast, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public async Task RefreshDoesNotSpendTheRefreshTokenOnceTheFileHoldsAnother()
+    {
+        var path = WriteFile(SignedIn);
+        var store = new ClaudeCredentialStore(path);
+        var stale = store.Read();
+        WriteFile("""{ "claudeAiOauth": { "accessToken": "tok-claude", "refreshToken": "ref-claude" } }""");
+        var exchanges = 0;
+
+        await store.RefreshAsync(stale, (_, _) =>
+        {
+            exchanges++;
+            return Task.FromResult(new ClaudeTokenGrant("tok-new", "ref-new", NewExpiry));
+        }, CancellationToken.None);
+
+        Assert.Equal(0, exchanges);
+        Assert.Equal("tok-claude", store.Read().AccessToken);
+    }
+
+    [Fact]
+    public async Task RefreshOfAFileItCannotWriteIsAnExpiredLoginWithoutAnExchange()
+    {
+        var path = WriteFile(SignedIn);
+        var store = new ClaudeCredentialStore(path);
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+        var exchanges = 0;
+
+        try
+        {
+            await Assert.ThrowsAsync<AuthExpiredException>(() => store.RefreshAsync(store.Read(), (_, _) =>
+            {
+                exchanges++;
+                return Task.FromResult(new ClaudeTokenGrant("tok-new", "ref-new", NewExpiry));
+            }, CancellationToken.None));
+        }
+        finally
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
+        }
+
+        Assert.Equal(0, exchanges);
+        Assert.Equal("tok-old", store.Read().AccessToken);
     }
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);

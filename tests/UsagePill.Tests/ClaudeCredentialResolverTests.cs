@@ -218,6 +218,30 @@ public class ClaudeCredentialResolverTests : IDisposable
     }
 
     [Fact]
+    public async Task RefreshRenewsOnlyTheFileTheExpiredTokenCameFrom()
+    {
+        var windows = WriteRaw("windows.json",
+            $$"""{ "claudeAiOauth": { "accessToken": "tok-windows", "refreshToken": "ref-windows", "expiresAt": {{Noon.AddHours(-2).ToUnixTimeMilliseconds()}} } }""");
+        var wsl = WriteRaw("wsl.json",
+            $$"""{ "claudeAiOauth": { "accessToken": "tok-wsl", "refreshToken": "ref-wsl", "expiresAt": {{Noon.AddHours(-30).ToUnixTimeMilliseconds()}} } }""");
+        var wslBefore = File.ReadAllText(wsl);
+        var resolver = Resolver(wsl, windows);
+        _clock.SetUtcNow(Noon);
+
+        var expired = resolver.Read();
+        string? spent = null;
+        var renewed = await resolver.RefreshAsync(expired, (refreshToken, _) =>
+        {
+            spent = refreshToken;
+            return Task.FromResult(new ClaudeTokenGrant("tok-windows-new", "ref-windows-new", Noon.AddHours(8)));
+        }, CancellationToken.None);
+
+        Assert.Equal("ref-windows", spent);
+        Assert.Equal("tok-windows-new", renewed.AccessToken);
+        Assert.Equal(wslBefore, File.ReadAllText(wsl));
+    }
+
+    [Fact]
     public void LeavesAnExpiredFallbackOnceTheRejectedSourceRefreshes()
     {
         // A file whose token expired long ago, the way a WSL Claude Code that stopped
