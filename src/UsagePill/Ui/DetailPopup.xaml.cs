@@ -301,7 +301,9 @@ public partial class DetailPopup : Window
         var barWidth = slot - gap;
         var currency = budget.Spend.Currency;
 
-        var peak = Math.Max(budget.EvenSplit, days.Max(d => d.Spent ?? 0));
+        // At least twice the even split, so the dashed line sits mid-strip on ordinary days
+        // instead of on the top edge, where it would read as a separator.
+        var peak = Math.Max(budget.EvenSplit * 2, days.Max(d => d.Spent ?? 0));
         double Scale(decimal amount) => peak > 0 ? (double)(amount / peak) * height : 0;
 
         var canvas = new Canvas { Width = width, Height = height, Margin = new Thickness(0, 4, 0, 0) };
