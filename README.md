@@ -48,18 +48,43 @@ session ring is always shown.
 
 Some accounts, such as enterprise seats billed by usage, have no 5 hour or weekly limit at
 all: the endpoint reports only a monthly spend cap. The pill detects this from the response
-itself and then shows a single ring, the share of the monthly cap spent, whatever the ring
-settings say:
+itself and budgets the cap instead, whatever the ring settings say. It shows three rings:
 
-- The ring uses your ring colour, turns amber at the threshold, and red when the API reports
-  the spend as critical.
-- The tooltip reads, for example, `Monthly spend 86% - $86.93 / $100`, and the tray icon
-  shows the same percentage.
-- The detail card shows one "Monthly spend" row with its meter and the amounts.
-- With **Show the reset time as text** on, the slot shows the amount spent, such as `$87`,
-  because the API reports no reset date for the cap.
+- **Today**: today's spend against today's share of the cap.
+- **This week**: this week's spend, Monday to Sunday, against the week's share.
+- **Month**: the share of the monthly cap spent.
 
-When the account gets limits again, the pill goes back to its three rings on the next poll.
+The cap resets at midnight UTC on the 1st, the same reset claude.ai shows. Today's share is
+what was left of the cap when the day began, spread evenly over the days left in the month,
+today included. So a quiet day raises every later day's share, and an expensive day lowers
+them. The week's share works the same way. Days and weeks follow your local time, so the
+month's first and last days are partial: in US Central time, October runs from 7 PM on
+September 30 to 7 PM on October 31.
+
+- The today and week rings read, for example, `126` when you are 26% over the share. They
+  turn amber at the threshold and red above 100. The month ring turns amber at the threshold
+  and red when the API reports the spend as critical.
+- The tooltip reads, for example:
+
+  ```
+  Today 126% - $40 of $32
+  This week 41% - $90 of $217
+  October 47% - $470.00 / $1000
+  ```
+
+- The tray icon shows today's ring.
+- The detail card shows a row for each ring, a bar for each day of the month, and when the cap
+  resets. A bar is red on a day that went over its share, and a dashed line marks an even
+  split of the cap.
+- With **Show the reset time as text** on, the slot shows what is left of today's share, such
+  as `$19`, or how far over it you are, such as `+$8`.
+
+The usage endpoint keeps no daily history, so the pill keeps its own in
+`%APPDATA%\usage-pill\spend-ledger.json`. It only knows what it has seen. On the day you
+install it, today and this week count from the first reading, and spend made while the pill
+is closed counts toward the next day it runs.
+
+When the account gets limits again, the pill goes back to its limit rings on the next poll.
 
 ## Getting it running
 
@@ -229,7 +254,8 @@ The ring size range and the vertical layout, side by side:
 |---|---|
 | All rings grey and empty, `--` inside | No poll has completed yet. Normal for the first few seconds after startup. |
 | All rings grey and empty, `-` inside, tooltip "Claude Code not logged in" | No credentials file on Windows or in any WSL distribution could be read. Sign in with Claude Code. |
-| A single ring instead of three | The account has no session or weekly limits, only a monthly spend cap. See [Accounts billed by spend only](#accounts-billed-by-spend-only). |
+| Rings labelled Today, This week and the month instead of Session and Weekly | The account has no session or weekly limits, only a monthly spend cap. See [Accounts billed by spend only](#accounts-billed-by-spend-only). |
+| Today and This week read 0 right after installing | The pill learns daily spend from its own readings, so on its first day it counts from the first one. |
 | First ring amber and full with `!`, others grey, tooltip "Login expired - start Claude Code to refresh" | The access token has expired and the pill could not renew it: the file has no refresh token, the pill cannot write the file, or the refresh token was refused. Start Claude Code, run `/login` if it asks, then wait for the next poll. |
 | First ring amber and full with `!`, others grey, tooltip "Login lacks usage access - run /login in Claude Code" | The token lacks the `user:profile` scope the usage endpoint requires. Run `/login` in Claude Code to sign in again. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip "Rate limited, retrying at HH:MM" | The usage endpoint returned 429. The poller waits as long as the endpoint's `Retry-After` asks, or backs off from 5 minutes up to an hour without one, and retries automatically. Refresh now does not cut the wait short. |
