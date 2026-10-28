@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using Microsoft.CSharp.RuntimeBinder;
 using UsagePill.Claude;
 using UsagePill.Core;
+using UsagePill.Pacing;
 using UsagePill.Polling;
 using UsagePill.Settings;
 using UsagePill.Ui;
@@ -39,6 +40,7 @@ public partial class App : Application
     private UsagePoller _poller = null!;
     private HttpClient _http = null!;
     private IUsageProvider _provider = null!;
+    private SpendTracker _spend = null!;
     private DispatcherTimer _intervalDebounceTimer = null!;
     private DispatcherTimer _settingsSaveDebounceTimer = null!;
     private SettingsWindow? _settingsWindow;
@@ -84,6 +86,8 @@ public partial class App : Application
             _settings = _settings with { StartWithWindows = startupEnabled };
         }
 
+        _spend = new SpendTracker(new SpendLedgerStore(SpendLedgerStore.DefaultPath()), TimeZoneInfo.Local);
+
         _theme = new ThemeWatcher();
         _theme.Start();
 
@@ -125,9 +129,10 @@ public partial class App : Application
 
     private void Render(UsageState state)
     {
-        _pill.Apply(state);
-        _detail.Apply(state, _provider.DisplayName);
-        _tray.Apply(state, _settings);
+        var budget = _spend.Update(state);
+        _pill.Apply(state, budget);
+        _detail.Apply(state, budget, _provider.DisplayName);
+        _tray.Apply(state, budget, _settings);
     }
 
     private void ToggleDetail(DateTime pressedAt)

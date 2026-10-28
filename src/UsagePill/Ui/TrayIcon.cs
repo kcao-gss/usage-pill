@@ -3,11 +3,12 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using UsagePill.Core;
+using UsagePill.Pacing;
 using UsagePill.Settings;
 
 namespace UsagePill.Ui;
 
-/// <summary>Tray icon that draws the session percentage, plus the shared context menu.</summary>
+/// <summary>Tray icon that draws the pill's first ring, plus the shared context menu.</summary>
 public sealed class TrayIcon : IDisposable
 {
     private readonly NotifyIcon _icon = new();
@@ -107,17 +108,20 @@ public sealed class TrayIcon : IDisposable
         _icon.ContextMenuStrip!.Show(System.Windows.Forms.Cursor.Position);
     }
 
-    public void Apply(UsageState state, AppSettings settings)
+    public void Apply(UsageState state, SpendBudget? budget, AppSettings settings)
     {
-        // The headline ring: the session window, or the monthly spend of a spend-only account.
+        // The headline ring: the pill's first ring, so the session window, or today's share of a
+        // spend-only account's budget.
         var spendOnly = state.Snapshot?.IsSpendOnly == true;
-        var reading = LimitDisplay.Reading(state.Snapshot, spendOnly ? null : LimitKind.Session);
-        var text = reading is { } value ? RingGeometry.FormatPercent(value.Percent) : "-";
-        var wpfColor = reading is { } r
-            ? RingGeometry.ColorFor(r.Percent, r.Severity, settings.WarnThresholdPercent, PillTheme.ParseRingColor(settings.RingColor))
-            : RingGeometry.Grey;
+        var reading = LimitDisplay.Reading(state.Snapshot, budget, spendOnly ? RingId.SpendToday : RingId.Session);
+        var text = reading?.Text ?? "-";
+        var wpfColor = reading?.ColorFor(settings.WarnThresholdPercent, PillTheme.ParseRingColor(settings.RingColor)) ?? RingGeometry.Grey;
 
-        _icon.Text = reading is null ? "Usage Pill - no data" : spendOnly ? $"Claude monthly spend {text}%" : $"Claude session {text}%";
+        _icon.Text = reading is null
+            ? "Usage Pill - no data"
+            : spendOnly && budget is { } b
+                ? $"Claude today {text}% of {LimitDisplay.FormatMoney(b.Today.Share, b.Spend.Currency)}"
+                : $"Claude session {text}%";
 
         var (next, handle) = Render(text, Color.FromArgb(wpfColor.R, wpfColor.G, wpfColor.B), reading?.Percent ?? 0);
         _icon.Icon = next;

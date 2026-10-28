@@ -55,6 +55,28 @@ public class RingGeometryTests
     }
 
     [Theory]
+    [InlineData(74.9, "normal")]
+    [InlineData(75, "amber")]
+    [InlineData(100.9, "amber")] // shows as 100, so it does not read as over
+    [InlineData(101, "red")]
+    [InlineData(450, "red")]
+    public void APaceRingGoesRedOnlyOnceItShowsMoreThan100(double percent, string expected)
+    {
+        var colour = RingGeometry.PaceColorFor(percent, 75, Blue);
+
+        Assert.Equal(expected switch { "red" => RingGeometry.Red, "amber" => RingGeometry.Amber, _ => Blue }, colour);
+    }
+
+    [Theory]
+    [InlineData(126.3, "126")]
+    [InlineData(0, "0")]
+    [InlineData(1500, "999")]
+    public void PacePercentsRunPast100UpTo999(double percent, string expected)
+    {
+        Assert.Equal(expected, RingGeometry.FormatPacePercent(percent));
+    }
+
+    [Theory]
     [InlineData(134, "2h 14m")]
     [InlineData(14, "14m")]
     [InlineData(0, "now")]

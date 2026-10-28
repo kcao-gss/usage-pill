@@ -7,6 +7,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using UsagePill.Core;
+using UsagePill.Pacing;
 using UsagePill.Settings;
 
 namespace UsagePill.Ui;
@@ -18,12 +19,12 @@ public partial class PillWindow : Window
     private const int WM_DISPLAYCHANGE = 0x007E;
 
     private readonly ThemeWatcher _theme;
-    // A null kind is the spend ring, the only ring of a spend-only account.
-    private readonly List<(LimitKind? Kind, RingGauge Gauge)> _gauges = new();
+    private readonly List<(RingId Ring, RingGauge Gauge)> _gauges = new();
     private TextBlock? _resetText;
 
     private AppSettings _settings;
     private UsageState _state = UsageState.Loading;
+    private SpendBudget? _budget;
     private bool _spendOnly;
     private bool _dragged;
 
@@ -141,12 +142,13 @@ public partial class PillWindow : Window
         Rebuild();
     }
 
-    public void Apply(UsageState state)
+    public void Apply(UsageState state, SpendBudget? budget)
     {
         _state = state;
+        _budget = budget;
 
         // Follows the last good snapshot, which the state keeps through errors, so a failed poll
-        // never flips the pill between its spend ring and its limit rings.
+        // never flips the pill between its spend rings and its limit rings.
         var spendOnly = state.Snapshot?.IsSpendOnly == true;
         if (spendOnly != _spendOnly)
         {
@@ -179,7 +181,7 @@ public partial class PillWindow : Window
         _gauges.Clear();
         _resetText = null;
 
-        foreach (var kind in RingKinds())
+        foreach (var ring in RingIds())
         {
             var gauge = new RingGauge
             {
@@ -196,7 +198,7 @@ public partial class PillWindow : Window
             };
 
             Rings.Children.Add(gauge);
-            _gauges.Add((kind, gauge));
+            _gauges.Add((ring, gauge));
         }
 
         if (_settings.ShowResetTimeText)
@@ -230,19 +232,11 @@ public partial class PillWindow : Window
         }
     }
 
-    /// <summary>A spend-only account has nothing but the spend ring, whatever the ring settings say.</summary>
-    private IEnumerable<LimitKind?> RingKinds()
+    /// <summary>A spend-only account shows its budget rings, whatever the ring settings say.</summary>
+    private IEnumerable<RingId> RingIds()
     {
-        if (_spendOnly)
-        {
-            yield return null;
-            yield break;
-        }
-
-        foreach (var (kind, _) in LimitDisplay.Order)
-        {
-            if (IsRingEnabled(kind)) yield return kind;
-        }
+        if (_spendOnly) return LimitDisplay.SpendRings;
+        return LimitDisplay.Order.Where(o => IsRingEnabled(o.Kind)).Select(o => o.Ring);
     }
 
     private bool IsRingEnabled(LimitKind kind) => kind switch
@@ -260,8 +254,8 @@ public partial class PillWindow : Window
 
         for (var i = 0; i < _gauges.Count; i++)
         {
-            var (kind, gauge) = _gauges[i];
-            var reading = LimitDisplay.Reading(snapshot, kind);
+            var (ring, gauge) = _gauges[i];
+            var reading = LimitDisplay.Reading(snapshot, _budget, ring);
 
             gauge.ShowStaleDot = stale && i == 0;
 
@@ -284,16 +278,16 @@ public partial class PillWindow : Window
             }
 
             gauge.Percent = value.Percent;
-            gauge.RingColor = RingGeometry.ColorFor(value.Percent, value.Severity, _settings.WarnThresholdPercent, PillTheme.ParseRingColor(_settings.RingColor));
-            gauge.Text = RingGeometry.FormatPercent(value.Percent);
+            gauge.RingColor = value.ColorFor(_settings.WarnThresholdPercent, PillTheme.ParseRingColor(_settings.RingColor));
+            gauge.Text = value.Text;
             SetTextOpacity(gauge, 1.0);
         }
 
         if (_resetText is not null)
         {
-            // A spend cap reports no reset time, so the slot shows the amount spent instead.
+            // A spend cap reports no reset time, so the slot shows what is left of today's share.
             _resetText.Text = _spendOnly
-                ? snapshot?.Spend is { } spend ? LimitDisplay.FormatSpent(spend) : "-"
+                ? snapshot is not null && _budget is { } budget ? LimitDisplay.FormatLeft(budget.Today, budget.Spend.Currency) : "-"
                 : snapshot?.Find(LimitKind.Session)?.ResetsAt is { } resetsAt ? RingGeometry.FormatResetIn(resetsAt - DateTimeOffset.UtcNow) : "-";
         }
 
@@ -315,7 +309,7 @@ public partial class PillWindow : Window
 
         var snapshot = _state.Snapshot;
         var text = new StringBuilder();
-        foreach (var (kind, label) in LimitDisplay.Order)
+        foreach (var (_, kind, label) in LimitDisplay.Order)
         {
             var limit = snapshot?.Find(kind);
             if (limit is null) continue;
@@ -330,9 +324,11 @@ public partial class PillWindow : Window
             text.AppendLine();
         }
 
-        if (snapshot is { IsSpendOnly: true, Spend: { } spent })
+        if (snapshot is { IsSpendOnly: true, Spend: { } spent } && _budget is { } budget)
         {
-            text.Append(LimitDisplay.SpendLabel).Append(' ').Append(RingGeometry.FormatPercent(spent.Percent)).Append("% - ")
+            AppendPace(text, LimitDisplay.TodayLabel, budget.Today, spent.Currency);
+            AppendPace(text, LimitDisplay.WeekLabel, budget.Week, spent.Currency);
+            text.Append(budget.MonthName).Append(' ').Append(RingGeometry.FormatPercent(spent.Percent)).Append("% - ")
                 .Append(LimitDisplay.FormatSpend(spent)).AppendLine();
         }
 
@@ -344,6 +340,10 @@ public partial class PillWindow : Window
         var tooltip = text.ToString().TrimEnd();
         return tooltip.Length == 0 ? null : tooltip;
     }
+
+    private static void AppendPace(StringBuilder text, string label, SpendPace pace, string currency) =>
+        text.Append(label).Append(' ').Append(RingGeometry.FormatPacePercent(pace.Percent)).Append("% - ")
+            .Append(LimitDisplay.FormatPace(pace, currency)).AppendLine();
 
     private void OnCapsuleMouseDown(object sender, MouseButtonEventArgs e)
     {

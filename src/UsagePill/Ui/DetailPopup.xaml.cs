@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -5,6 +6,7 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using UsagePill.Core;
+using UsagePill.Pacing;
 using UsagePill.Settings;
 
 namespace UsagePill.Ui;
@@ -36,7 +38,7 @@ public partial class DetailPopup : Window
     }
 
     /// <summary>
-    /// Takes effect on the next <see cref="Apply(UsageState, string)"/>, so a threshold, ring
+    /// Takes effect on the next <see cref="Apply(UsageState, SpendBudget, string)"/>, so a threshold, ring
     /// color or background change made while this popup is open (or merely constructed) shows the
     /// next time the composition root re-renders, without recreating this window.
     /// </summary>
@@ -55,7 +57,7 @@ public partial class DetailPopup : Window
     /// </summary>
     public DateTime LastHiddenAt { get; private set; } = DateTime.MinValue;
 
-    public void Apply(UsageState state, string providerName)
+    public void Apply(UsageState state, SpendBudget? budget, string providerName)
     {
         var theme = PillTheme.For(_settings.Background, _theme.IsDark);
         Card.Background = new SolidColorBrush(theme.CardBackground);
@@ -89,12 +91,12 @@ public partial class DetailPopup : Window
         }
 
         var snapshot = state.Snapshot;
-        DateTimeOffset? sessionResetsAt = null;
-        DateTimeOffset? weeklyResetsAt = null;
+        string? footerLeft = null;
+        string? footerRight = null;
 
         for (var i = 0; i < LimitDisplay.Order.Length; i++)
         {
-            var (kind, label) = LimitDisplay.Order[i];
+            var (_, kind, label) = LimitDisplay.Order[i];
             var limit = snapshot.Find(kind);
             if (limit is null) continue;
 
@@ -103,27 +105,27 @@ public partial class DetailPopup : Window
             Body.Children.Add(Row(name, Ordinals[i], RingGeometry.FormatPercent(limit.Percent) + "%", color));
             Body.Children.Add(Meter(limit.Percent, color));
 
-            if (kind == LimitKind.Session) sessionResetsAt = limit.ResetsAt;
-            else weeklyResetsAt ??= limit.ResetsAt;
+            if (limit.ResetsAt is not { } resets) continue;
+            if (kind == LimitKind.Session) footerLeft = $"Session resets {resets.ToLocalTime():HH:mm}";
+            else footerRight ??= $"Weekly {resets.ToLocalTime():ddd HH:mm}";
         }
 
         if (snapshot.Spend is { } spend)
         {
-            if (snapshot.IsSpendOnly)
-            {
-                var color = RingGeometry.ColorFor(spend.Percent, spend.ApiSeverity, _settings.WarnThresholdPercent, _ringColor);
-                Body.Children.Add(Row(LimitDisplay.SpendLabel, null, LimitDisplay.FormatSpend(spend), color));
-                Body.Children.Add(Meter(spend.Percent, color));
-            }
-            else
+            if (!snapshot.IsSpendOnly)
             {
                 Body.Children.Add(Row("Extra credits", null, LimitDisplay.FormatSpend(spend), RingGeometry.Grey));
             }
+            else if (budget is { } b)
+            {
+                AddBudget(snapshot, b);
+                footerLeft = "Resets " + b.ResetsAt.ToLocalTime().ToString("ddd MMM d, h:mm tt", CultureInfo.InvariantCulture);
+            }
         }
 
-        if (sessionResetsAt is not null || weeklyResetsAt is not null)
+        if (footerLeft is not null || footerRight is not null)
         {
-            Body.Children.Add(Footer(sessionResetsAt, weeklyResetsAt));
+            Body.Children.Add(Footer(footerLeft, footerRight));
         }
 
         var age = DateTimeOffset.UtcNow - snapshot.CapturedAt;
@@ -264,7 +266,129 @@ public partial class DetailPopup : Window
         return track;
     }
 
-    private static UIElement Footer(DateTimeOffset? sessionResetsAt, DateTimeOffset? weeklyResetsAt)
+    private void AddBudget(UsageSnapshot snapshot, SpendBudget budget)
+    {
+        var currency = budget.Spend.Currency;
+        AddPaceRow(LimitDisplay.TodayLabel, budget.Today, currency, LimitDisplay.Reading(snapshot, budget, RingId.SpendToday));
+        AddPaceRow(LimitDisplay.WeekLabel, budget.Week, currency, LimitDisplay.Reading(snapshot, budget, RingId.SpendWeek));
+
+        var month = LimitDisplay.Reading(snapshot, budget, RingId.SpendMonth);
+        var monthColor = month?.ColorFor(_settings.WarnThresholdPercent, _ringColor) ?? RingGeometry.Grey;
+        Body.Children.Add(Row(budget.MonthName, null, LimitDisplay.FormatSpend(budget.Spend), monthColor));
+        Body.Children.Add(Meter(budget.Spend.Percent, monthColor));
+
+        Body.Children.Add(DailyBars(budget));
+    }
+
+    private void AddPaceRow(string label, SpendPace pace, string currency, RingReading? reading)
+    {
+        var color = reading?.ColorFor(_settings.WarnThresholdPercent, _ringColor) ?? RingGeometry.Grey;
+        Body.Children.Add(Row(label, null, LimitDisplay.FormatPace(pace, currency), color));
+        Body.Children.Add(Meter(pace.Percent, color));
+    }
+
+    /// <summary>
+    /// One bar per day of the budget month: red on days that went over their share, outlined for
+    /// today, a stub for days still to come, and a dashed line at the even split.
+    /// </summary>
+    private UIElement DailyBars(SpendBudget budget)
+    {
+        const double height = 60;
+        const double gap = 2;
+        var width = Body.Width;
+        var days = budget.Days;
+        var slot = (width + gap) / days.Count;
+        var barWidth = slot - gap;
+        var currency = budget.Spend.Currency;
+
+        var peak = Math.Max(budget.EvenSplit, days.Max(d => d.Spent ?? 0));
+        double Scale(decimal amount) => peak > 0 ? (double)(amount / peak) * height : 0;
+
+        var canvas = new Canvas { Width = width, Height = height, Margin = new Thickness(0, 4, 0, 0) };
+        var text = Color.FromRgb(0xEE, 0xF1, 0xF6);
+
+        for (var i = 0; i < days.Count; i++)
+        {
+            var day = days[i];
+            var left = i * slot;
+
+            if (day.IsFuture)
+            {
+                Place(canvas, new Border { Width = barWidth, Height = 2, Background = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF)) }, left, height - 2);
+                continue;
+            }
+
+            if (day.Spent is not { } spent) continue;
+
+            var barHeight = Math.Max(1, Scale(spent));
+            var bar = new Border
+            {
+                Width = barWidth,
+                Height = barHeight,
+                CornerRadius = new CornerRadius(1.5, 1.5, 0, 0),
+                Background = new SolidColorBrush(day.Over ? RingGeometry.Red : _ringColor),
+                ToolTip = $"{ShortDate(day.Date)}: {LimitDisplay.FormatMoney(spent, currency)} of {LimitDisplay.FormatMoney(day.Share, currency)}",
+            };
+            Place(canvas, bar, left, height - barHeight);
+
+            if (day.IsToday)
+            {
+                var outline = new Border
+                {
+                    Width = barWidth + 2,
+                    Height = barHeight + 1,
+                    CornerRadius = new CornerRadius(2.5, 2.5, 0, 0),
+                    BorderBrush = new SolidColorBrush(text),
+                    BorderThickness = new Thickness(1, 1, 1, 0),
+                    IsHitTestVisible = false,
+                };
+                Place(canvas, outline, left - 1, height - barHeight - 1);
+            }
+        }
+
+        var evenY = Math.Round(height - Scale(budget.EvenSplit)) + 0.5;
+        canvas.Children.Add(new System.Windows.Shapes.Line
+        {
+            X1 = 0, X2 = width, Y1 = evenY, Y2 = evenY,
+            Stroke = new SolidColorBrush(Color.FromArgb(0x73, 0xFF, 0xFF, 0xFF)),
+            StrokeThickness = 1,
+            StrokeDashArray = new DoubleCollection { 2, 2 },
+            IsHitTestVisible = false,
+        });
+
+        var axis = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        axis.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        axis.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        axis.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        AddAxisLabel(axis, ShortDate(days[0].Date), 0, TextAlignment.Left);
+        AddAxisLabel(axis, $"dashed: {LimitDisplay.FormatMoney(budget.EvenSplit, currency)} a day", 1, TextAlignment.Center);
+        AddAxisLabel(axis, ShortDate(days[^1].Date), 2, TextAlignment.Right);
+
+        var strip = new StackPanel();
+        strip.Children.Add(canvas);
+        strip.Children.Add(axis);
+        return strip;
+    }
+
+    private static void Place(Canvas canvas, UIElement element, double left, double top)
+    {
+        Canvas.SetLeft(element, left);
+        Canvas.SetTop(element, top);
+        canvas.Children.Add(element);
+    }
+
+    private static void AddAxisLabel(Grid axis, string text, int column, TextAlignment alignment)
+    {
+        var label = Muted(text);
+        label.Margin = new Thickness(0);
+        label.TextAlignment = alignment;
+        Grid.SetColumn(label, column);
+        axis.Children.Add(label);
+    }
+
+    private static string ShortDate(DateOnly date) => date.ToString("MMM d", CultureInfo.InvariantCulture);
+
+    private static UIElement Footer(string? left, string? right)
     {
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -279,17 +403,17 @@ public partial class DetailPopup : Window
             Child = grid,
         };
 
-        if (sessionResetsAt is { } session)
+        if (left is not null)
         {
-            var text = Muted($"Session resets {session.ToLocalTime():HH:mm}");
+            var text = Muted(left);
             text.Margin = new Thickness(0);
             Grid.SetColumn(text, 0);
             grid.Children.Add(text);
         }
 
-        if (weeklyResetsAt is { } weekly)
+        if (right is not null)
         {
-            var text = Muted($"Weekly {weekly.ToLocalTime():ddd HH:mm}");
+            var text = Muted(right);
             text.Margin = new Thickness(0);
             Grid.SetColumn(text, 1);
             grid.Children.Add(text);

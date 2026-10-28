@@ -35,6 +35,21 @@ public static class RingGeometry
     public static string FormatPercent(double percent) =>
         ((int)Math.Floor(Math.Clamp(percent, 0, 100))).ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// A pace ring is a share of a spend budget. It can run past 100, and going over is what it
+    /// must flag, so it is red once the number shown passes 100 rather than when the API says so.
+    /// </summary>
+    public static Color PaceColorFor(double percent, int warnThresholdPercent, Color normal) => percent switch
+    {
+        >= 101 => Red,
+        _ when percent >= warnThresholdPercent => Amber,
+        _ => normal,
+    };
+
+    /// <summary>Whole numbers past 100, capped at three digits so the number still fits the ring.</summary>
+    public static string FormatPacePercent(double percent) =>
+        ((int)Math.Floor(Math.Clamp(percent, 0, 999))).ToString(CultureInfo.InvariantCulture);
+
     public static string FormatResetIn(TimeSpan remaining)
     {
         if (remaining <= TimeSpan.Zero) return "now";
