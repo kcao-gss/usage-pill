@@ -154,17 +154,21 @@ Daily spend = `last` of that day minus `opening(day start)`. Days without an ent
 
 ## 9. Architecture
 
-- `Core/SpendLedger.cs`: an immutable record with `Record(SpendInfo, DateTimeOffset, TimeZoneInfo)`
-  and `Opening(DateTimeOffset)`. Pure, no I/O.
-- `Core/SpendBudget.cs`: `SpendBudget.Compute(SpendInfo, SpendLedger, DateTimeOffset now,
-  TimeZoneInfo zone)` returns the periods, shares, readings and daily bars of sections 3, 4
-  and 8. Pure.
-- `Settings/SpendLedgerStore.cs`: load and save. It shares the atomic write in `SettingsStore`
-  by extracting that into one helper, not by copying it.
-- `App`: after each poll that brings a fresh spend-only snapshot, it records it into the ledger,
-  saves, computes the budget, and passes it to the pill, card and tray next to the `UsageState`.
-- `PillWindow`, `DetailPopup`, `TrayIcon`, `LimitDisplay`: the spend ring (today's `null`
-  `LimitKind`) becomes three spend rings. The ring identity type is decided in the plan.
+Everything new lives in one folder, `src/UsagePill/Pacing/` (namespace `UsagePill.Pacing`):
+
+- `SpendMonth.cs`: the days of one budget month in one time zone (section 3). Pure.
+- `SpendLedger.cs`: an immutable record with `Record` and `OpeningOf` (section 5). Pure.
+- `SpendBudget.cs`: `SpendBudget.Compute` returns the shares, readings and daily bars of
+  sections 4 and 8. Pure.
+- `SpendLedgerStore.cs`: load and save. It shares the atomic write in `SettingsStore` by
+  extracting that into `Settings/AtomicFile.cs`, not by copying it.
+- `SpendTracker.cs`: on each new spend-only snapshot it records it into the ledger, saves, and
+  computes the budget at the snapshot's capture time, so stale data shows the budget it had.
+
+`App.Render` asks the tracker for the budget and passes it to the pill, card and tray next to
+the `UsageState`. In the UI, a `RingId` enum (`Session`, `WeeklyAll`, `WeeklyScoped`,
+`SpendToday`, `SpendWeek`, `SpendMonth`) replaces the nullable `LimitKind` that stands for the
+spend ring today.
 
 ## 10. Testing
 
