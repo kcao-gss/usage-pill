@@ -1,7 +1,7 @@
 # Spend Pacing - Design Spec
 
 Date: 2026-10-28
-Status: Draft, pending review
+Status: Approved (design), pending implementation plan
 Prototype: `.lavish/spend-pill.html` (direction P3)
 
 ## 1. Purpose
@@ -19,7 +19,7 @@ Success criteria:
 - On a spend-only account the pill shows three rings: today's share, this week's share, and the
   month. Each reads as a percentage the same way the subscription rings do.
 - Unspent money rolls forward: a quiet day raises every later day's share.
-- The daily bars in the detail card add up to the month's spend the app has observed.
+- The daily bars in the detail card add up to the spend the app has observed this month (section 5).
 - Nothing changes for subscription accounts.
 
 ## 2. Facts this rests on
@@ -56,7 +56,9 @@ and that the card's bars do not line up exactly with claude.ai's UTC chart.
 
 ## 4. Shares (roll forward)
 
-`opening(t)` is the spend total at instant `t`, from the ledger (section 5).
+`opening(t)` is the spend total at instant `t`, from the ledger (section 5). Period starts are
+the clipped ones from section 3: on the month's first day and in its first week the start is the
+month start itself (Sep 30 19:00 CDT), not local midnight or Monday.
 
 - **Today's share** = `(limit - opening(day start)) / days left at day start`.
 - **This week's share** = `(limit - opening(week start)) / days left at week start x days of
@@ -95,8 +97,15 @@ The API has no history, so the app keeps its own, at `%APPDATA%\usage-pill\spend
   The save is atomic (temp file and move), as `settings.json` is.
 - **opening(t)**: the `last` of the latest day before `t`'s day that has an entry. If there is
   none, it is 0 when `t` is the month start, and otherwise the `first` of the earliest entry at
-  or after `t`. So spend made while the app was closed counts toward the first day the app sees
-  afterward. That keeps the invariant that the daily spends add up to the month's spend.
+  or after `t`. So spend made while the app was closed between two days it saw counts toward the
+  later day.
+- **Invariant**: the daily spends add up to `used - opening(first day)`, where the first day is
+  the earliest entry's day. That is all of `used` when the ledger began on the month's first
+  day. When it began later (install mid-month, or a restart after a reset), the spend before the
+  first reading belongs to no day and appears in no bar.
+- Keys are only unique within one ledger month. With UTC+9 the old month's last day and the new
+  month's first day are both `2026-11-01`. That is safe because the ledger starts over with the
+  month.
 - The ledger starts over when the UTC month changes, when `used` falls below the latest recorded
   value (an early reset, or a different account), or when the currency changes.
 - A missing or damaged file means an empty ledger, as for `settings.json`. The first poll after
@@ -112,7 +121,8 @@ just as they do not apply to today's single spend ring.
 - **Ring text**: the percentage from section 4, for example `126`.
 - **Colour**: the month ring keeps the current rule (`RingGeometry.ColorFor` with the API's
   severity). The today and week rings use the ring colour below the warn threshold (default 75%),
-  amber from the threshold to 100%, and red above 100%.
+  amber from the threshold to 100%, and red above 100%. `ColorFor` has no over-100 rule, so this
+  needs a new function next to it.
 - **Text slot** (`showResetTimeText`): the pill has one slot after the rings, not one per ring
   (the prototype drew one per ring). It shows today's money left, `$19`, or `+$8` when over.
   This mirrors the subscription pill, whose slot shows the time left on the first ring.
@@ -165,7 +175,8 @@ Unit tests, all on pure code, with injected time zones, including Central (DST e
 - shares: roll forward, over 100%, a share of zero, and a cap change mid-month;
 - ledger: the `opening` rules, month rollover, `used` decreasing, currency change, and a
   persistence round trip with a damaged file;
-- the invariant that the daily spends add up to `used - opening(month start)`.
+- the invariant from section 5, for a ledger that began on the month's first day and one that
+  began mid-month.
 
 End to end: install, run on the real account, and screenshot the pill (vertical and
 horizontal), the tooltip and the detail card.
