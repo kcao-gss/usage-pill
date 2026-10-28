@@ -109,15 +109,17 @@ public sealed class TrayIcon : IDisposable
 
     public void Apply(UsageState state, AppSettings settings)
     {
-        var session = state.Snapshot?.Find(LimitKind.Session);
-        var text = session is null ? "-" : RingGeometry.FormatPercent(session.Percent);
-        var wpfColor = session is null
-            ? RingGeometry.Grey
-            : RingGeometry.ColorFor(session.Percent, session.ApiSeverity, settings.WarnThresholdPercent, PillTheme.ParseRingColor(settings.RingColor));
+        // The headline ring: the session window, or the monthly spend of a spend-only account.
+        var spendOnly = state.Snapshot?.IsSpendOnly == true;
+        var reading = LimitDisplay.Reading(state.Snapshot, spendOnly ? null : LimitKind.Session);
+        var text = reading is { } value ? RingGeometry.FormatPercent(value.Percent) : "-";
+        var wpfColor = reading is { } r
+            ? RingGeometry.ColorFor(r.Percent, r.Severity, settings.WarnThresholdPercent, PillTheme.ParseRingColor(settings.RingColor))
+            : RingGeometry.Grey;
 
-        _icon.Text = session is null ? "Usage Pill - no data" : $"Claude session {text}%";
+        _icon.Text = reading is null ? "Usage Pill - no data" : spendOnly ? $"Claude monthly spend {text}%" : $"Claude session {text}%";
 
-        var (next, handle) = Render(text, Color.FromArgb(wpfColor.R, wpfColor.G, wpfColor.B), session?.Percent ?? 0);
+        var (next, handle) = Render(text, Color.FromArgb(wpfColor.R, wpfColor.G, wpfColor.B), reading?.Percent ?? 0);
         _icon.Icon = next;
         _current?.Dispose();
         if (_currentIconHandle != IntPtr.Zero) NativeMethods.DestroyIcon(_currentIconHandle);

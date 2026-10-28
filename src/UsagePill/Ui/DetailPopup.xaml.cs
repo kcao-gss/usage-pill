@@ -101,7 +101,7 @@ public partial class DetailPopup : Window
             var name = LimitDisplay.NameFor(kind, label, limit.ScopeLabel);
             var color = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, _settings.WarnThresholdPercent, _ringColor);
             Body.Children.Add(Row(name, Ordinals[i], RingGeometry.FormatPercent(limit.Percent) + "%", color));
-            Body.Children.Add(Meter(limit, color));
+            Body.Children.Add(Meter(limit.Percent, color));
 
             if (kind == LimitKind.Session) sessionResetsAt = limit.ResetsAt;
             else weeklyResetsAt ??= limit.ResetsAt;
@@ -109,7 +109,16 @@ public partial class DetailPopup : Window
 
         if (snapshot.Spend is { } spend)
         {
-            Body.Children.Add(Row("Extra credits", null, FormatSpend(spend), RingGeometry.Grey));
+            if (snapshot.IsSpendOnly)
+            {
+                var color = RingGeometry.ColorFor(spend.Percent, spend.ApiSeverity, _settings.WarnThresholdPercent, _ringColor);
+                Body.Children.Add(Row(LimitDisplay.SpendLabel, null, LimitDisplay.FormatSpend(spend), color));
+                Body.Children.Add(Meter(spend.Percent, color));
+            }
+            else
+            {
+                Body.Children.Add(Row("Extra credits", null, LimitDisplay.FormatSpend(spend), RingGeometry.Grey));
+            }
         }
 
         if (sessionResetsAt is not null || weeklyResetsAt is not null)
@@ -178,12 +187,6 @@ public partial class DetailPopup : Window
         Hide();
     }
 
-    private static string FormatSpend(SpendInfo spend)
-    {
-        var symbol = spend.Currency == "USD" ? "$" : spend.Currency + " ";
-        return $"{symbol}{spend.Used:0.00} / {symbol}{spend.Limit:0}";
-    }
-
     // WPF's TextBlock has no letter-spacing property. The mockup's `.win h4` tracking (0.06em)
     // is approximated by interleaving a hair space (U+200A) between the uppercased characters,
     // which is close enough at 11px to read as tracked without a custom render pass.
@@ -239,7 +242,7 @@ public partial class DetailPopup : Window
         return grid;
     }
 
-    private UIElement Meter(UsageLimit limit, Color color)
+    private UIElement Meter(double percent, Color color)
     {
         var track = new Border
         {
@@ -254,7 +257,7 @@ public partial class DetailPopup : Window
             Height = 4, CornerRadius = new CornerRadius(2),
             HorizontalAlignment = HorizontalAlignment.Left,
             Background = new SolidColorBrush(color),
-            Width = Body.Width * Math.Clamp(limit.Percent, 0, 100) / 100,
+            Width = Body.Width * Math.Clamp(percent, 0, 100) / 100,
         };
 
         track.Child = fill;

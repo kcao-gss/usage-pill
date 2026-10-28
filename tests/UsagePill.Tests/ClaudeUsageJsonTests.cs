@@ -70,6 +70,60 @@ public class ClaudeUsageJsonTests
     }
 
     [Fact]
+    public void AResponseWithOnlyASpendCapIsSpendOnly()
+    {
+        // The shape an enterprise seat gets: every window null, no limits, only the spend cap.
+        const string json = """
+        {
+          "five_hour": null,
+          "seven_day": null,
+          "seven_day_opus": null,
+          "extra_usage": { "is_enabled": true, "monthly_limit": 10000, "used_credits": 8693.0, "utilization": 86.93, "currency": "USD", "decimal_places": 2 },
+          "limits": [],
+          "spend": {
+            "used": { "amount_minor": 8693, "currency": "USD", "exponent": 2 },
+            "limit": { "amount_minor": 10000, "currency": "USD", "exponent": 2 },
+            "percent": 87, "severity": "warning", "enabled": true
+          }
+        }
+        """;
+
+        var snapshot = ClaudeUsageJson.Parse(json, Captured);
+
+        Assert.True(snapshot.IsSpendOnly);
+        Assert.Equal(86.93, snapshot.Spend!.Percent, 6);
+        Assert.Equal(Severity.Warning, snapshot.Spend!.ApiSeverity);
+    }
+
+    [Fact]
+    public void AResponseWithLimitsAndSpendIsNotSpendOnly()
+    {
+        var snapshot = ClaudeUsageJson.Parse(Fixture(), Captured);
+
+        Assert.False(snapshot.IsSpendOnly);
+    }
+
+    [Fact]
+    public void LegacyWindowsKeepTheLimitRingsEvenWithASpendCap()
+    {
+        const string json = """
+        {
+          "five_hour": { "utilization": 55.0, "resets_at": "2026-09-14T19:10:00+00:00" },
+          "limits": [],
+          "spend": {
+            "used": { "amount_minor": 500, "currency": "USD", "exponent": 2 },
+            "limit": { "amount_minor": 20000, "currency": "USD", "exponent": 2 }
+          }
+        }
+        """;
+
+        var snapshot = ClaudeUsageJson.Parse(json, Captured);
+
+        Assert.False(snapshot.IsSpendOnly);
+        Assert.Equal(55, snapshot.Find(LimitKind.Session)!.Percent);
+    }
+
+    [Fact]
     public void AnEmptyObjectProducesNoLimitsAndDoesNotThrow()
     {
         var snapshot = ClaudeUsageJson.Parse("{}", Captured);

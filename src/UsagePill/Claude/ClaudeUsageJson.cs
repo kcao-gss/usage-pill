@@ -71,7 +71,7 @@ public static class ClaudeUsageJson
         if (used is null || limit is null) return null;
 
         var currency = spend.TryGetProperty("limit", out var l) ? GetString(l, "currency") : null;
-        return new SpendInfo(used.Value, limit.Value, currency ?? "USD");
+        return new SpendInfo(used.Value, limit.Value, currency ?? "USD", ParseSeverity(GetString(spend, "severity")));
     }
 
     private static decimal? ReadMoney(JsonElement spend, string property)

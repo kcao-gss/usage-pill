@@ -25,4 +25,12 @@ public class UsageSnapshotTests
 
         Assert.Null(snapshot.Find(LimitKind.WeeklyScoped));
     }
+
+    [Fact]
+    public void ASpendCapOfZeroReadsAsZeroPercent()
+    {
+        var spend = new SpendInfo(5m, 0m, "USD", Severity.Normal);
+
+        Assert.Equal(0, spend.Percent);
+    }
 }

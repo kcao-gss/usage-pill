@@ -19,11 +19,13 @@ public partial class PillWindow : Window
     private const int WM_DISPLAYCHANGE = 0x007E;
 
     private readonly ThemeWatcher _theme;
-    private readonly List<(LimitKind Kind, RingGauge Gauge)> _gauges = new();
+    // A null kind is the spend ring, the only ring of a spend-only account.
+    private readonly List<(LimitKind? Kind, RingGauge Gauge)> _gauges = new();
     private TextBlock? _resetText;
 
     private AppSettings _settings;
     private UsageState _state = UsageState.Loading;
+    private bool _spendOnly;
     private bool _dragged;
 
     public PillWindow(AppSettings settings, ThemeWatcher theme)
@@ -143,6 +145,17 @@ public partial class PillWindow : Window
     public void Apply(UsageState state)
     {
         _state = state;
+
+        // Follows the last good snapshot, which the state keeps through errors, so a failed poll
+        // never flips the pill between its spend ring and its limit rings.
+        var spendOnly = state.Snapshot?.IsSpendOnly == true;
+        if (spendOnly != _spendOnly)
+        {
+            _spendOnly = spendOnly;
+            Rebuild();
+            return;
+        }
+
         Render();
     }
 
@@ -167,10 +180,8 @@ public partial class PillWindow : Window
         _gauges.Clear();
         _resetText = null;
 
-        foreach (var (kind, _) in LimitDisplay.Order)
+        foreach (var kind in RingKinds())
         {
-            if (!IsRingEnabled(kind)) continue;
-
             var gauge = new RingGauge
             {
                 RingSize = size,
@@ -220,6 +231,21 @@ public partial class PillWindow : Window
         }
     }
 
+    /// <summary>A spend-only account has nothing but the spend ring, whatever the ring settings say.</summary>
+    private IEnumerable<LimitKind?> RingKinds()
+    {
+        if (_spendOnly)
+        {
+            yield return null;
+            yield break;
+        }
+
+        foreach (var (kind, _) in LimitDisplay.Order)
+        {
+            if (IsRingEnabled(kind)) yield return kind;
+        }
+    }
+
     private bool IsRingEnabled(LimitKind kind) => kind switch
     {
         LimitKind.Session => true,
@@ -236,7 +262,7 @@ public partial class PillWindow : Window
         for (var i = 0; i < _gauges.Count; i++)
         {
             var (kind, gauge) = _gauges[i];
-            var limit = snapshot?.Find(kind);
+            var reading = LimitDisplay.Reading(snapshot, kind);
 
             gauge.ShowStaleDot = stale && i == 0;
 
@@ -249,7 +275,7 @@ public partial class PillWindow : Window
                 continue;
             }
 
-            if (limit is null)
+            if (reading is not { } value)
             {
                 gauge.Percent = 0;
                 gauge.RingColor = RingGeometry.Grey;
@@ -258,16 +284,18 @@ public partial class PillWindow : Window
                 continue;
             }
 
-            gauge.Percent = limit.Percent;
-            gauge.RingColor = RingGeometry.ColorFor(limit.Percent, limit.ApiSeverity, _settings.WarnThresholdPercent, PillTheme.ParseRingColor(_settings.RingColor));
-            gauge.Text = RingGeometry.FormatPercent(limit.Percent);
+            gauge.Percent = value.Percent;
+            gauge.RingColor = RingGeometry.ColorFor(value.Percent, value.Severity, _settings.WarnThresholdPercent, PillTheme.ParseRingColor(_settings.RingColor));
+            gauge.Text = RingGeometry.FormatPercent(value.Percent);
             SetTextOpacity(gauge, 1.0);
         }
 
         if (_resetText is not null)
         {
-            var resetsAt = snapshot?.Find(LimitKind.Session)?.ResetsAt;
-            _resetText.Text = resetsAt is null ? "-" : RingGeometry.FormatResetIn(resetsAt.Value - DateTimeOffset.UtcNow);
+            // A spend cap reports no reset time, so the slot shows the amount spent instead.
+            _resetText.Text = _spendOnly
+                ? snapshot?.Spend is { } spend ? LimitDisplay.FormatSpent(spend) : "-"
+                : snapshot?.Find(LimitKind.Session)?.ResetsAt is { } resetsAt ? RingGeometry.FormatResetIn(resetsAt - DateTimeOffset.UtcNow) : "-";
         }
 
         Capsule.Opacity = stale ? 0.6 : 1.0;
@@ -301,6 +329,12 @@ public partial class PillWindow : Window
                 text.Append(" - resets in ").Append(RingGeometry.FormatResetIn(resets - DateTimeOffset.UtcNow));
             }
             text.AppendLine();
+        }
+
+        if (snapshot is { IsSpendOnly: true, Spend: { } spent })
+        {
+            text.Append(LimitDisplay.SpendLabel).Append(' ').Append(RingGeometry.FormatPercent(spent.Percent)).Append("% - ")
+                .Append(LimitDisplay.FormatSpend(spent)).AppendLine();
         }
 
         if (_state.Status == UsageStatus.Stale && _state.Message is { } message)

@@ -44,6 +44,23 @@ Each ring's colour comes from its own value:
 Every ring except the session ring can be switched off individually in Settings; the
 session ring is always shown.
 
+### Accounts billed by spend only
+
+Some accounts, such as enterprise seats billed by usage, have no 5 hour or weekly limit at
+all: the endpoint reports only a monthly spend cap. The pill detects this from the response
+itself and then shows a single ring, the share of the monthly cap spent, whatever the ring
+settings say:
+
+- The ring uses your ring colour, turns amber at the threshold, and red when the API reports
+  the spend as critical.
+- The tooltip reads, for example, `Monthly spend 86% - $86.93 / $100`, and the tray icon
+  shows the same percentage.
+- The detail card shows one "Monthly spend" row with its meter and the amounts.
+- With **Show the reset time as text** on, the slot shows the amount spent, such as `$87`,
+  because the API reports no reset date for the cap.
+
+When the account gets limits again, the pill goes back to its three rings on the next poll.
+
 ## Getting it running
 
 You need the .NET 8 Windows SDK. From WSL, `build.sh` wraps the Windows SDK so
@@ -212,6 +229,7 @@ The ring size range and the vertical layout, side by side:
 |---|---|
 | All rings grey and empty, `--` inside | No poll has completed yet. Normal for the first few seconds after startup. |
 | All rings grey and empty, `-` inside, tooltip "Claude Code not logged in" | No credentials file on Windows or in any WSL distribution could be read. Sign in with Claude Code. |
+| A single ring instead of three | The account has no session or weekly limits, only a monthly spend cap. See [Accounts billed by spend only](#accounts-billed-by-spend-only). |
 | First ring amber and full with `!`, others grey, tooltip "Login expired - start Claude Code to refresh" | The access token has expired and the pill could not renew it: the file has no refresh token, the pill cannot write the file, or the refresh token was refused. Start Claude Code, run `/login` if it asks, then wait for the next poll. |
 | First ring amber and full with `!`, others grey, tooltip "Login lacks usage access - run /login in Claude Code" | The token lacks the `user:profile` scope the usage endpoint requires. Run `/login` in Claude Code to sign in again. |
 | Last good values shown, capsule dimmed to 60% opacity, grey dot on the first ring, tooltip "Rate limited, retrying at HH:MM" | The usage endpoint returned 429. The poller waits as long as the endpoint's `Retry-After` asks, or backs off from 5 minutes up to an hour without one, and retries automatically. Refresh now does not cut the wait short. |
