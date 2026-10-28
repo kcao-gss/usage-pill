@@ -13,7 +13,6 @@ namespace UsagePill.Ui;
 
 public partial class PillWindow : Window
 {
-    private const double SnapDistance = 16;
     private const double ShadowMargin = 22;
     private const int WM_GETMINMAXINFO = 0x0024;
     private const int WM_DISPLAYCHANGE = 0x007E;
@@ -389,24 +388,17 @@ public partial class PillWindow : Window
 
     private void SnapToEdges()
     {
-        var capsuleLeft = Left + ShadowMargin;
-        var capsuleTop = Top + ShadowMargin;
-        var capsuleWidth = Capsule.ActualWidth;
-        var capsuleHeight = Capsule.ActualHeight;
-        var area = GetWorkArea(capsuleLeft, capsuleTop, capsuleWidth, capsuleHeight);
+        var capsule = new Rect(Left + ShadowMargin, Top + ShadowMargin, Capsule.ActualWidth, Capsule.ActualHeight);
+        var area = GetWorkArea(capsule.Left, capsule.Top, capsule.Width, capsule.Height);
+        var landed = EdgeSnap.Snap(capsule, area, ShadowMargin);
 
-        if (Math.Abs(capsuleLeft - area.Left) <= SnapDistance) capsuleLeft = area.Left;
-        if (Math.Abs(area.Right - (capsuleLeft + capsuleWidth)) <= SnapDistance) capsuleLeft = area.Right - capsuleWidth;
-        if (Math.Abs(capsuleTop - area.Top) <= SnapDistance) capsuleTop = area.Top;
-        if (Math.Abs(area.Bottom - (capsuleTop + capsuleHeight)) <= SnapDistance) capsuleTop = area.Bottom - capsuleHeight;
-
-        Left = capsuleLeft - ShadowMargin;
-        Top = capsuleTop - ShadowMargin;
+        Left = landed.X - ShadowMargin;
+        Top = landed.Y - ShadowMargin;
     }
 
     // Called after a settings-driven Rebuild() has grown or shrunk the capsule. Unlike
-    // SnapToEdges (which only pulls the capsule flush when a drag release lands it within
-    // SnapDistance of an edge), this always keeps the capsule fully inside the work area: a
+    // SnapToEdges (which only pulls the capsule flush when a drag release lands it near or past
+    // an edge), this always keeps the capsule fully inside the work area: a
     // pill that was flush against an edge before the resize stays flush against it afterwards,
     // while a pill nowhere near an edge is left at its freely chosen position.
     private void ConstrainToWorkArea()
