@@ -184,7 +184,7 @@ up to your poll interval, so the rings go live within one poll interval of the n
   answers a few requests within seconds with 429 and then refuses every request for about
   five minutes.
 - **Drag** the pill to move it. Release it near or past a screen edge or corner and it
-  snaps flush. The position is saved.
+  snaps to float 8 px inside the edge. The position is saved.
 - The **tray icon** draws the session percentage, so you can hide the pill and
   still see your session usage at a glance.
 

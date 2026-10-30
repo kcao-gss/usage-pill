@@ -396,30 +396,20 @@ public partial class PillWindow : Window
         Top = landed.Y - ShadowMargin;
     }
 
-    // Called after a settings-driven Rebuild() has grown or shrunk the capsule. Unlike
-    // SnapToEdges (which only pulls the capsule flush when a drag release lands it near or past
-    // an edge), this always keeps the capsule fully inside the work area: a
-    // pill that was flush against an edge before the resize stays flush against it afterwards,
+    // Called on load, after a display change, and after a settings-driven Rebuild() has grown or
+    // shrunk the capsule. Unlike SnapToEdges (which only pulls the capsule to an edge when a drag
+    // release lands it near or past one), this always keeps the capsule EdgeSnap.Gap inside the
+    // work area: a pill snapped to an edge before the resize stays snapped to it afterwards,
     // while a pill nowhere near an edge is left at its freely chosen position.
     private void ConstrainToWorkArea()
     {
-        var capsuleLeft = Left + ShadowMargin;
-        var capsuleTop = Top + ShadowMargin;
-        var capsuleWidth = Capsule.ActualWidth;
-        var capsuleHeight = Capsule.ActualHeight;
-        var area = GetWorkArea(capsuleLeft, capsuleTop, capsuleWidth, capsuleHeight);
+        var capsule = new Rect(Left + ShadowMargin, Top + ShadowMargin, Capsule.ActualWidth, Capsule.ActualHeight);
+        var area = GetWorkArea(capsule.Left, capsule.Top, capsule.Width, capsule.Height);
+        var clamped = EdgeSnap.Constrain(capsule, area);
 
-        var minLeft = area.Left;
-        var maxLeft = Math.Max(area.Left, area.Right - capsuleWidth);
-        var minTop = area.Top;
-        var maxTop = Math.Max(area.Top, area.Bottom - capsuleHeight);
+        if (Math.Abs(clamped.X - capsule.Left) < 0.5 && Math.Abs(clamped.Y - capsule.Top) < 0.5) return;
 
-        var clampedLeft = Math.Min(Math.Max(capsuleLeft, minLeft), maxLeft);
-        var clampedTop = Math.Min(Math.Max(capsuleTop, minTop), maxTop);
-
-        if (Math.Abs(clampedLeft - capsuleLeft) < 0.5 && Math.Abs(clampedTop - capsuleTop) < 0.5) return;
-
-        Left = clampedLeft - ShadowMargin;
-        Top = clampedTop - ShadowMargin;
+        Left = clamped.X - ShadowMargin;
+        Top = clamped.Y - ShadowMargin;
     }
 }
